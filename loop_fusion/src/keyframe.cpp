@@ -176,15 +176,14 @@ bool KeyFrame::searchInAera(const BRIEF::bitset window_descriptor,
 void KeyFrame::searchByBRIEFDes(std::vector<cv::Point2f> &matched_2d_old,
 								std::vector<cv::Point2f> &matched_2d_old_norm,
                                 std::vector<uchar> &status,
-                                const std::vector<BRIEF::bitset> &descriptors_old,
-                                const std::vector<cv::KeyPoint> &keypoints_old,
-                                const std::vector<cv::KeyPoint> &keypoints_old_norm)
+                                KeyFrame* old_kf)
 {
     for(int i = 0; i < (int)window_brief_descriptors.size(); i++)
     {
         cv::Point2f pt(0.f, 0.f);
         cv::Point2f pt_norm(0.f, 0.f);
-        if (searchInAera(window_brief_descriptors[i], descriptors_old, keypoints_old, keypoints_old_norm, pt, pt_norm))
+        if (searchInAera(window_brief_descriptors[i], old_kf->brief_descriptors,
+                         old_kf->keypoints, old_kf->keypoints_norm, pt, pt_norm))
           status.push_back(1);
         else
           status.push_back(0);
@@ -266,6 +265,14 @@ void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
         int n = inliers.at<int>(i);
         status[n] = 1;
     }
+    
+    if (inliers.rows > 0) {
+        if (this->index == -1) {
+            printf("[FAILURE_RECOVERY] PnPRANSAC: Inliers %d / %d\n", inliers.rows, (int)matched_2d_old_norm.size());
+        } else {
+            printf("[LOOP_FUSION] PnPRANSAC: Inliers %d / %d\n", inliers.rows, (int)matched_2d_old_norm.size());
+        }
+    }
 
     cv::Rodrigues(rvec, r);
     Matrix3d R_pnp, R_w_c_old;
@@ -338,7 +345,7 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	    }
 	#endif
 	//printf("[POSEGRAPH]: search by des\n");
-	searchByBRIEFDes(matched_2d_old, matched_2d_old_norm, status, old_kf->brief_descriptors, old_kf->keypoints, old_kf->keypoints_norm);
+	searchByBRIEFDes(matched_2d_old, matched_2d_old_norm, status, old_kf);
 	reduceVector(matched_2d_cur, status);
 	reduceVector(matched_2d_old, status);
 	reduceVector(matched_2d_cur_norm, status);
@@ -346,6 +353,11 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	reduceVector(matched_3d, status);
 	reduceVector(matched_id, status);
 	//printf("[POSEGRAPH]: search by des finish\n");
+
+    if (index == -1 || old_kf->index == -1) // This is likely failure_recovery node
+    {
+        ROS_INFO("[FAILURE_RECOVERY] findConnection: BRIEF matches %d", (int)matched_2d_cur.size());
+    }
 
 	#if 0 
 		if (DEBUG_IMAGE)
@@ -517,6 +529,12 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	    //printf("[POSEGRAPH]: PNP relative\n");
 	    //cout << "pnp relative_t " << relative_t.transpose() << endl;
 	    //cout << "pnp relative_yaw " << relative_yaw << endl;
+        
+        if (index == -1 || old_kf->index == -1)
+        {
+            ROS_INFO("[FAILURE_RECOVERY] findConnection: rel_t.norm %f, rel_yaw %f", relative_t.norm(), relative_yaw);
+        }
+
 	    if (abs(relative_yaw) < MAX_THETA_DIFF && relative_t.norm() < MAX_POS_DIFF)
 	    {
 

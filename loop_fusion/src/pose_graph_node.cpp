@@ -57,7 +57,7 @@ double PNP_INFLATION = 1.0;
 int RECALL_IGNORE_RECENT_COUNT = 50;
 double MAX_THETA_DIFF = 30.0;
 double MAX_POS_DIFF = 20.0;
-int MIN_LOOP_NUM = 25;
+int MIN_LOOP_NUM = 20;
 
 int VISUALIZATION_SHIFT_X;
 int VISUALIZATION_SHIFT_Y;
@@ -281,6 +281,25 @@ void vio_callback_pose(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr 
     cameraposevisual.publish_by(pub_camera_pose_visual, pose_msg->header);
 
 
+}
+
+void recovery_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &pose_msg)
+{
+    Vector3d P_rec(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
+    Quaterniond Q_rec(pose_msg->pose.pose.orientation.w, pose_msg->pose.pose.orientation.x,
+                      pose_msg->pose.pose.orientation.y, pose_msg->pose.pose.orientation.z);
+    double timestamp = pose_msg->header.stamp.toSec();
+    posegraph.updateRecoveryPose(P_rec, Q_rec, timestamp);
+}
+
+void restart_callback(const std_msgs::Bool::ConstPtr &msg)
+{
+    if (msg->data)
+    {
+        ROS_WARN("[POSEGRAPH] /restart received — starting new sequence for recovery.");
+        new_sequence();
+        posegraph.onRestart();
+    }
 }
 
 void extrinsic_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
@@ -605,6 +624,8 @@ int main(int argc, char **argv)
     ros::Subscriber sub_intrinsics = n.subscribe("/vins_estimator/intrinsics", 2000, intrinsics_callback);
     ros::Subscriber sub_point = n.subscribe("/vins_estimator/keyframe_point", 2000, point_callback);
     ros::Subscriber sub_margin_point = n.subscribe("/vins_estimator/margin_cloud", 2000, margin_point_callback);
+    ros::Subscriber sub_recovery = n.subscribe("/failure_recovery/recovered_pose", 2000, recovery_callback);
+    ros::Subscriber sub_restart  = n.subscribe("/restart", 10, restart_callback);
 
     pub_match_img = n.advertise<sensor_msgs::Image>("match_image", 1000);
     pub_camera_pose_visual = n.advertise<visualization_msgs::MarkerArray>("camera_pose_visual", 1000);

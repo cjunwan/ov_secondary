@@ -35,7 +35,5 @@ else
         -v /etc/passwd:/etc/passwd:ro \
         -v $DATASET_PATH:/home/woong8879/datasets \
         -v $WORKSPACE_PATH:/home/woong8879/microswarm_newvio \
-        -v $STX_INIT_PATH:/home/woong8879/stx-init \
-        -w /home/woong8879/stx-init \
         $IMAGE_NAME /bin/bash
 fi

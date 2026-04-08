@@ -81,6 +81,28 @@ void CameraPoseVisualization::add_edge(const Eigen::Vector3d& p0, const Eigen::V
     m_markers.push_back(marker);
 }
 
+void CameraPoseVisualization::add_edge(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1, const std_msgs::ColorRGBA& color){
+    visualization_msgs::Marker marker;
+
+    marker.ns = m_marker_ns;
+    marker.id = m_markers.size() + 1;
+    marker.type = visualization_msgs::Marker::LINE_LIST;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.scale.x = 0.01;
+
+    marker.color = color;
+
+    geometry_msgs::Point point0, point1;
+
+    Eigen2Point(p0, point0);
+    Eigen2Point(p1, point1);
+
+    marker.points.push_back(point0);
+    marker.points.push_back(point1);
+
+    m_markers.push_back(marker);
+}
+
 void CameraPoseVisualization::add_loopedge(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1){
     //m_markers.clear();
     visualization_msgs::Marker marker;
@@ -99,6 +121,28 @@ void CameraPoseVisualization::add_loopedge(const Eigen::Vector3d& p0, const Eige
     //marker.color.g = 1.0f;
     //marker.color.b = 1.0f;
     marker.color.a = 1.0;
+
+    geometry_msgs::Point point0, point1;
+
+    Eigen2Point(p0, point0);
+    Eigen2Point(p1, point1);
+
+    marker.points.push_back(point0);
+    marker.points.push_back(point1);
+
+    m_markers.push_back(marker);
+}
+
+void CameraPoseVisualization::add_loopedge(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1, const std_msgs::ColorRGBA& color){
+    visualization_msgs::Marker marker;
+
+    marker.ns = m_marker_ns;
+    marker.id = m_markers.size() + 1;
+    marker.type = visualization_msgs::Marker::LINE_STRIP;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.lifetime = ros::Duration();
+    marker.scale.x = 0.02;
+    marker.color = color;
 
     geometry_msgs::Point point0, point1;
 
@@ -179,6 +223,90 @@ void CameraPoseVisualization::add_pose(const Eigen::Vector3d& p, const Eigen::Qu
     marker.colors.push_back(m_optical_center_connector_color);
     marker.colors.push_back(m_optical_center_connector_color);
 
+
+    marker.points.push_back(pt_lb);
+    marker.points.push_back(pt_oc);
+    marker.colors.push_back(m_optical_center_connector_color);
+    marker.colors.push_back(m_optical_center_connector_color);
+
+    marker.points.push_back(pt_rt);
+    marker.points.push_back(pt_oc);
+    marker.colors.push_back(m_optical_center_connector_color);
+    marker.colors.push_back(m_optical_center_connector_color);
+
+    marker.points.push_back(pt_rb);
+    marker.points.push_back(pt_oc);
+    marker.colors.push_back(m_optical_center_connector_color);
+    marker.colors.push_back(m_optical_center_connector_color);
+
+    m_markers.push_back(marker);
+}
+
+void CameraPoseVisualization::add_pose(const Eigen::Vector3d& p, const Eigen::Quaterniond& q, const std_msgs::ColorRGBA& color) {
+    visualization_msgs::Marker marker;
+
+    marker.ns = m_marker_ns;
+    marker.id = 0;
+    marker.type = visualization_msgs::Marker::LINE_STRIP;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.scale.x = m_line_width;
+
+    marker.pose.position.x = 0.0;
+    marker.pose.position.y = 0.0;
+    marker.pose.position.z = 0.0;
+    marker.pose.orientation.w = 1.0;
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = 0.0;
+
+    geometry_msgs::Point pt_lt, pt_lb, pt_rt, pt_rb, pt_oc, pt_lt0, pt_lt1, pt_lt2;
+
+    Eigen2Point(q * (m_scale *imlt) + p, pt_lt);
+    Eigen2Point(q * (m_scale *imlb) + p, pt_lb);
+    Eigen2Point(q * (m_scale *imrt) + p, pt_rt);
+    Eigen2Point(q * (m_scale *imrb) + p, pt_rb);
+    Eigen2Point(q * (m_scale *lt0 ) + p, pt_lt0);
+    Eigen2Point(q * (m_scale *lt1 ) + p, pt_lt1);
+    Eigen2Point(q * (m_scale *lt2 ) + p, pt_lt2);
+    Eigen2Point(q * (m_scale *oc  ) + p, pt_oc);
+
+    // image boundaries
+    marker.points.push_back(pt_lt);
+    marker.points.push_back(pt_lb);
+    marker.colors.push_back(color);
+    marker.colors.push_back(color);
+
+    marker.points.push_back(pt_lb);
+    marker.points.push_back(pt_rb);
+    marker.colors.push_back(color);
+    marker.colors.push_back(color);
+
+    marker.points.push_back(pt_rb);
+    marker.points.push_back(pt_rt);
+    marker.colors.push_back(color);
+    marker.colors.push_back(color);
+
+    marker.points.push_back(pt_rt);
+    marker.points.push_back(pt_lt);
+    marker.colors.push_back(color);
+    marker.colors.push_back(color);
+
+    // top-left indicator
+    marker.points.push_back(pt_lt0);
+    marker.points.push_back(pt_lt1);
+    marker.colors.push_back(color);
+    marker.colors.push_back(color);
+
+    marker.points.push_back(pt_lt1);
+    marker.points.push_back(pt_lt2);
+    marker.colors.push_back(color);
+    marker.colors.push_back(color);
+
+    // optical center connector
+    marker.points.push_back(pt_lt);
+    marker.points.push_back(pt_oc);
+    marker.colors.push_back(m_optical_center_connector_color);
+    marker.colors.push_back(m_optical_center_connector_color);
 
     marker.points.push_back(pt_lb);
     marker.points.push_back(pt_oc);

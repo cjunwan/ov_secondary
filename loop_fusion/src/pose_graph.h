@@ -21,8 +21,12 @@
 #include <queue>
 #include <assert.h>
 #include <nav_msgs/Path.h>
+#include <std_msgs/Bool.h>
 #include <geometry_msgs/PointStamped.h>
+#include <geometry_msgs/Point.h>
 #include <nav_msgs/Odometry.h>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 #include <stdio.h>
 #include <ros/ros.h>
 #include "keyframe.h"
@@ -36,7 +40,7 @@
 #include "ThirdParty/DBoW/TemplatedVocabulary.h"
 
 
-#define SHOW_S_EDGE false
+#define SHOW_S_EDGE true
 #define SHOW_L_EDGE true
 #define SAVE_LOOP_PATH true
 
@@ -60,6 +64,8 @@ public:
 	void savePoseGraph();
 	void loadPoseGraph();
 	void publish();
+	void updateRecoveryPose(const Eigen::Vector3d &P_rec, const Eigen::Quaterniond &Q_rec, double timestamp);
+	void onRestart();
 	Vector3d t_drift;
 	double yaw_drift;
 	Matrix3d r_drift;
@@ -74,6 +80,7 @@ private:
 	void optimize4DoF();
 	void optimize6DoF();
 	void updatePath();
+	void publishStitchMarkers(const Eigen::Vector3d &pre_P, const Eigen::Vector3d &post_P);
 	list<KeyFrame*> keyframelist;
 	std::mutex m_keyframelist;
 	std::mutex m_optimize_buf;
@@ -89,6 +96,7 @@ private:
 	int earliest_loop_index;
 	int base_sequence;
 	bool use_imu;
+	int restart_index_;   // first global keyframe index after /restart (-1 = not in recovery)
 
 	BriefDatabase db;
 	BriefVocabulary* voc;
@@ -97,6 +105,8 @@ private:
 	ros::Publisher pub_base_path;
 	ros::Publisher pub_pose_graph;
 	ros::Publisher pub_path[10];
+	ros::Publisher pub_recovery_stitch;
+	ros::Publisher pub_recovery_cancel;
 };
 
 template <typename T> inline

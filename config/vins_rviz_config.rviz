@@ -265,6 +265,14 @@ Visualization Manager:
           Use Fixed Frame: true
           Use rainbow: true
           Value: false
+        - Class: rviz/MarkerArray
+          Enabled: true
+          Marker Topic: /loop_fusion_node/recovery_stitch
+          Name: recoveryStitch
+          Namespaces:
+            recovery_stitch: true
+          Queue Size: 100
+          Value: true
         - Class: rviz/Image
           Enabled: true
           Image Topic: /ov_secondary/match_image

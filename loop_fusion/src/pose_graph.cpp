@@ -27,6 +27,7 @@ PoseGraph::PoseGraph()
     sequence_loop.push_back(0);
     base_sequence = 1;
     use_imu = 0;
+    restart_index_ = -1;
 }
 
 PoseGraph::~PoseGraph()
@@ -41,6 +42,8 @@ void PoseGraph::registerPub(ros::NodeHandle &n)
     pub_pose_graph = n.advertise<visualization_msgs::MarkerArray>("pose_graph", 1000);
     for (int i = 1; i < 10; i++)
         pub_path[i] = n.advertise<nav_msgs::Path>("path_" + to_string(i), 1000);
+    pub_recovery_stitch = n.advertise<visualization_msgs::MarkerArray>("recovery_stitch", 100);
+    pub_recovery_cancel = n.advertise<std_msgs::Bool>("/failure_recovery/trigger", 10);
 }
 
 void PoseGraph::setIMUFlag(bool _use_imu)
@@ -152,6 +155,19 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
                     }
                 }
                 sequence_loop[cur_kf->sequence] = 1;
+
+                // Visualize stitch point
+                Vector3d old_P, cur_P_vis;
+                Matrix3d old_R, cur_R_vis;
+                old_kf->getPose(old_P, old_R);
+                cur_kf->getPose(cur_P_vis, cur_R_vis);
+                publishStitchMarkers(old_P, cur_P_vis);
+
+                // Loop closure stitched a cross-sequence match — cancel failure recovery if active
+                std_msgs::Bool cancel_msg;
+                cancel_msg.data = false;
+                pub_recovery_cancel.publish(cancel_msg);
+                ROS_INFO("[POSEGRAPH] Cross-sequence loop closure — recovery mode cancelled.");
             }
             m_optimize_buf.lock();
             optimize_buf.push(cur_kf->index);
@@ -208,8 +224,24 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
             Matrix3d connected_R;
             if((*rit)->sequence == cur_kf->sequence)
             {
-                (*rit)->getPose(conncected_P, connected_R);
-                posegraph_visualization->add_edge(P, conncected_P);
+                auto getSequenceColor = [](int seq) -> std_msgs::ColorRGBA {
+                    std_msgs::ColorRGBA c;
+                    c.a = 1.0;
+                    switch(seq % 6) {
+                        case 0: c.r = 1.0; c.g = 0.0; c.b = 0.0; break;
+                        case 1: c.r = 0.0; c.g = 1.0; c.b = 0.0; break;
+                        case 2: c.r = 0.0; c.g = 0.0; c.b = 1.0; break;
+                        case 3: c.r = 1.0; c.g = 1.0; c.b = 0.0; break;
+                        case 4: c.r = 0.0; c.g = 1.0; c.b = 1.0; break;
+                        case 5: c.r = 1.0; c.g = 0.0; c.b = 1.0; break;
+                    }
+                    return c;
+                };
+
+                if (cur_kf->sequence > 1) {
+                    (*rit)->getPose(conncected_P, connected_R);
+                    posegraph_visualization->add_edge(P, conncected_P, getSequenceColor(cur_kf->sequence));
+                }
             }
             rit++;
         }
@@ -227,8 +259,10 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
             cur_kf->getPose(P0, R0);
             if(cur_kf->sequence > 0)
             {
+                std_msgs::ColorRGBA loop_color;
+                loop_color.r = 1.0; loop_color.g = 1.0; loop_color.b = 1.0; loop_color.a = 1.0;
                 //printf("[POSEGRAPH]: add loop into visual \n");
-                posegraph_visualization->add_loopedge(P0, connected_P + Vector3d(VISUALIZATION_SHIFT_X, VISUALIZATION_SHIFT_Y, 0));
+                posegraph_visualization->add_loopedge(P0, connected_P + Vector3d(VISUALIZATION_SHIFT_X, VISUALIZATION_SHIFT_Y, 0), loop_color);
             }
             
         }
@@ -295,8 +329,24 @@ void PoseGraph::loadKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
             Matrix3d connected_R;
             if((*rit)->sequence == cur_kf->sequence)
             {
-                (*rit)->getPose(conncected_P, connected_R);
-                posegraph_visualization->add_edge(P, conncected_P);
+                auto getSequenceColor = [](int seq) -> std_msgs::ColorRGBA {
+                    std_msgs::ColorRGBA c;
+                    c.a = 1.0;
+                    switch(seq % 6) {
+                        case 0: c.r = 1.0; c.g = 0.0; c.b = 0.0; break;
+                        case 1: c.r = 0.0; c.g = 1.0; c.b = 0.0; break;
+                        case 2: c.r = 0.0; c.g = 0.0; c.b = 1.0; break;
+                        case 3: c.r = 1.0; c.g = 1.0; c.b = 0.0; break;
+                        case 4: c.r = 0.0; c.g = 1.0; c.b = 1.0; break;
+                        case 5: c.r = 1.0; c.g = 0.0; c.b = 1.0; break;
+                    }
+                    return c;
+                };
+                
+                if (cur_kf->sequence > 1) {
+                    (*rit)->getPose(conncected_P, connected_R);
+                    posegraph_visualization->add_edge(P, conncected_P, getSequenceColor(cur_kf->sequence));
+                }
             }
             rit++;
         }
@@ -836,6 +886,20 @@ void PoseGraph::updatePath()
     base_path.poses.clear();
     posegraph_visualization->reset();
 
+    auto getSequenceColor = [](int seq) -> std_msgs::ColorRGBA {
+        std_msgs::ColorRGBA c;
+        c.a = 1.0;
+        switch(seq % 6) {
+            case 0: c.r = 1.0; c.g = 0.0; c.b = 0.0; break; // Red
+            case 1: c.r = 0.0; c.g = 1.0; c.b = 0.0; break; // Green
+            case 2: c.r = 0.0; c.g = 0.0; c.b = 1.0; break; // Blue
+            case 3: c.r = 1.0; c.g = 1.0; c.b = 0.0; break; // Yellow
+            case 4: c.r = 0.0; c.g = 1.0; c.b = 1.0; break; // Cyan
+            case 5: c.r = 1.0; c.g = 0.0; c.b = 1.0; break; // Magenta
+        }
+        return c;
+    };
+
     if (SAVE_LOOP_PATH)
     {
         ofstream loop_path_file_tmp(VINS_RESULT_PATH, ios::out);
@@ -908,8 +972,10 @@ void PoseGraph::updatePath()
                         {
                             Vector3d conncected_P;
                             Matrix3d connected_R;
-                            (*lrit)->getPose(conncected_P, connected_R);
-                            posegraph_visualization->add_edge(P, conncected_P);
+                            if ((*it)->sequence > 1) {
+                                (*lrit)->getPose(conncected_P, connected_R);
+                                posegraph_visualization->add_edge(P, conncected_P, getSequenceColor((*it)->sequence));
+                            }
                         }
                         lrit++;
                     }
@@ -930,7 +996,9 @@ void PoseGraph::updatePath()
                 (*it)->getPose(P, R);
                 if((*it)->sequence > 0)
                 {
-                    posegraph_visualization->add_loopedge(P, connected_P + Vector3d(VISUALIZATION_SHIFT_X, VISUALIZATION_SHIFT_Y, 0));
+                    std_msgs::ColorRGBA loop_color;
+                    loop_color.r = 1.0; loop_color.g = 1.0; loop_color.b = 1.0; loop_color.a = 1.0;
+                    posegraph_visualization->add_loopedge(P, connected_P + Vector3d(VISUALIZATION_SHIFT_X, VISUALIZATION_SHIFT_Y, 0), loop_color);
                 }
             }
         }
@@ -1130,4 +1198,186 @@ void PoseGraph::publish()
     }
     pub_base_path.publish(base_path);
     //posegraph_visualization->publish_by(pub_pose_graph, path[sequence_cnt].header);
+}
+
+void PoseGraph::publishStitchMarkers(const Eigen::Vector3d &pre_P, const Eigen::Vector3d &post_P)
+{
+    visualization_msgs::MarkerArray markers;
+    ros::Time now = ros::Time::now();
+
+    // Thick cyan line between the two stitch points
+    visualization_msgs::Marker line;
+    line.header.frame_id = "global";
+    line.header.stamp = now;
+    line.ns = "recovery_stitch";
+    line.id = 0;
+    line.type = visualization_msgs::Marker::LINE_STRIP;
+    line.action = visualization_msgs::Marker::ADD;
+    line.scale.x = 0.08;
+    line.color.r = 0.0f; line.color.g = 1.0f; line.color.b = 1.0f; line.color.a = 1.0f;
+    geometry_msgs::Point p0, p1;
+    p0.x = pre_P.x();  p0.y = pre_P.y();  p0.z = pre_P.z();
+    p1.x = post_P.x(); p1.y = post_P.y(); p1.z = post_P.z();
+    line.points.push_back(p0);
+    line.points.push_back(p1);
+    markers.markers.push_back(line);
+
+    // Sphere at pre-restart stitch point (yellow)
+    visualization_msgs::Marker sphere_pre;
+    sphere_pre.header.frame_id = "global";
+    sphere_pre.header.stamp = now;
+    sphere_pre.ns = "recovery_stitch";
+    sphere_pre.id = 1;
+    sphere_pre.type = visualization_msgs::Marker::SPHERE;
+    sphere_pre.action = visualization_msgs::Marker::ADD;
+    sphere_pre.pose.position.x = pre_P.x();
+    sphere_pre.pose.position.y = pre_P.y();
+    sphere_pre.pose.position.z = pre_P.z();
+    sphere_pre.pose.orientation.w = 1.0;
+    sphere_pre.scale.x = sphere_pre.scale.y = sphere_pre.scale.z = 0.3;
+    sphere_pre.color.r = 1.0f; sphere_pre.color.g = 1.0f; sphere_pre.color.b = 0.0f; sphere_pre.color.a = 1.0f;
+    markers.markers.push_back(sphere_pre);
+
+    // Sphere at post-restart stitch point (orange)
+    visualization_msgs::Marker sphere_post;
+    sphere_post.header.frame_id = "global";
+    sphere_post.header.stamp = now;
+    sphere_post.ns = "recovery_stitch";
+    sphere_post.id = 2;
+    sphere_post.type = visualization_msgs::Marker::SPHERE;
+    sphere_post.action = visualization_msgs::Marker::ADD;
+    sphere_post.pose.position.x = post_P.x();
+    sphere_post.pose.position.y = post_P.y();
+    sphere_post.pose.position.z = post_P.z();
+    sphere_post.pose.orientation.w = 1.0;
+    sphere_post.scale.x = sphere_post.scale.y = sphere_post.scale.z = 0.3;
+    sphere_post.color.r = 1.0f; sphere_post.color.g = 0.5f; sphere_post.color.b = 0.0f; sphere_post.color.a = 1.0f;
+    markers.markers.push_back(sphere_post);
+
+    // Text label at midpoint
+    Vector3d mid = (pre_P + post_P) * 0.5;
+    visualization_msgs::Marker text;
+    text.header.frame_id = "global";
+    text.header.stamp = now;
+    text.ns = "recovery_stitch";
+    text.id = 3;
+    text.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+    text.action = visualization_msgs::Marker::ADD;
+    text.pose.position.x = mid.x();
+    text.pose.position.y = mid.y();
+    text.pose.position.z = mid.z() + 0.4;
+    text.pose.orientation.w = 1.0;
+    text.scale.z = 0.25;
+    text.color.r = 1.0f; text.color.g = 1.0f; text.color.b = 1.0f; text.color.a = 1.0f;
+    text.text = "RECOVERED";
+    markers.markers.push_back(text);
+
+    pub_recovery_stitch.publish(markers);
+}
+
+void PoseGraph::onRestart()
+{
+    m_keyframelist.lock();
+    restart_index_ = global_index;
+    m_keyframelist.unlock();
+    ROS_WARN("[POSEGRAPH] onRestart: recovery boundary set at keyframe index %d", restart_index_);
+}
+
+void PoseGraph::updateRecoveryPose(const Eigen::Vector3d &P_rec, const Eigen::Quaterniond &Q_rec, double timestamp)
+{
+    m_keyframelist.lock();
+    if (keyframelist.empty())
+    {
+        m_keyframelist.unlock();
+        return;
+    }
+
+    // Find the keyframe closest to the recovery timestamp
+    KeyFrame* ref_kf = keyframelist.back();
+    double min_dt = fabs(ref_kf->time_stamp - timestamp);
+    for (auto &kf : keyframelist)
+    {
+        double dt = fabs(kf->time_stamp - timestamp);
+        if (dt < min_dt)
+        {
+            min_dt = dt;
+            ref_kf = kf;
+        }
+    }
+
+    // If the post-restart sequence was already stitched by normal loop closure, skip recovery drift
+    if (restart_index_ >= 0)
+    {
+        for (auto &kf : keyframelist)
+        {
+            if (kf->index >= restart_index_)
+            {
+                int post_seq = kf->sequence;
+                if (post_seq > 0 && post_seq < (int)sequence_loop.size() && sequence_loop[post_seq])
+                {
+                    ROS_INFO("[POSEGRAPH] Post-restart sequence already stitched by loop closure — skipping recovery drift.");
+                    restart_index_ = -1;
+                    m_keyframelist.unlock();
+                    { std_msgs::Bool msg; msg.data = false; pub_recovery_cancel.publish(msg); }
+                    return;
+                }
+                break;
+            }
+        }
+    }
+
+    Vector3d VIO_P;
+    Matrix3d VIO_R;
+    ref_kf->getVioPose(VIO_P, VIO_R);
+
+    m_drift.lock();
+    // Calculate new drift such that P_rec = R_drift * VIO_P + T_drift
+    // We strictly apply 4-DOF drift (Yaw + Translation) to maintain gravity alignment
+    double yaw_rec = Utility::R2ypr(Q_rec.toRotationMatrix()).x();
+    double yaw_vio = Utility::R2ypr(VIO_R).x();
+    yaw_drift = Utility::normalizeAngle(yaw_rec - yaw_vio);
+    r_drift = Utility::ypr2R(Vector3d(yaw_drift, 0, 0));
+    t_drift = P_rec - r_drift * VIO_P;
+    m_drift.unlock();
+
+    // Update only post-restart keyframes; pre-restart keyframes already have correct optimized poses.
+    // Also collect endpoint poses for the stitch visualization.
+    Vector3d stitch_pre_P(0, 0, 0);
+    Matrix3d stitch_pre_R = Matrix3d::Identity();
+    Vector3d stitch_post_P(0, 0, 0);
+    bool found_post = false;
+
+    for (auto &kf : keyframelist)
+    {
+        if (restart_index_ >= 0 && kf->index < restart_index_)
+        {
+            // Pre-restart: keep unchanged, record as stitch anchor
+            kf->getPose(stitch_pre_P, stitch_pre_R);
+            continue;
+        }
+        // Post-restart: apply drift to align to world frame
+        Vector3d P;
+        Matrix3d R;
+        kf->getVioPose(P, R);
+        P = r_drift * P + t_drift;
+        R = r_drift * R;
+        kf->updatePose(P, R);
+        if (!found_post)
+        {
+            stitch_post_P = P;
+            found_post = true;
+        }
+    }
+    restart_index_ = -1;  // recovery complete
+    m_keyframelist.unlock();
+
+    { std_msgs::Bool msg; msg.data = false; pub_recovery_cancel.publish(msg); }
+
+    if (found_post)
+        publishStitchMarkers(stitch_pre_P, stitch_post_P);
+
+    m_path.lock();
+    updatePath();
+    m_path.unlock();
+    printf("[POSEGRAPH]: Recovery complete! Post-restart drift: %.3f deg yaw, %.3f m\n", yaw_drift, t_drift.norm());
 }

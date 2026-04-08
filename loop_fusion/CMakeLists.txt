@@ -16,16 +16,20 @@ find_package(catkin REQUIRED COMPONENTS
     )
 
 
+set(OpenCV_DIR "/usr/lib/x86_64-linux-gnu/cmake/opencv4")
 find_package(OpenCV 4 REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(Eigen3)
 
 include_directories(${catkin_INCLUDE_DIRS} ${CERES_INCLUDE_DIRS}  ${EIGEN3_INCLUDE_DIR})
 
-catkin_package()
+catkin_package(
+    INCLUDE_DIRS src
+    LIBRARIES loop_fusion_lib
+    CATKIN_DEPENDS roscpp std_msgs nav_msgs camera_models cv_bridge
+)
 
-add_executable(loop_fusion_node
-    src/pose_graph_node.cpp
+add_library(loop_fusion_lib
     src/pose_graph.cpp
     src/keyframe.cpp
     src/utility/CameraPoseVisualization.cpp
@@ -38,6 +42,8 @@ add_executable(loop_fusion_node
     src/ThirdParty/DUtils/Timestamp.cpp
     src/ThirdParty/DVision/BRIEF.cpp
     src/ThirdParty/VocabularyBinary.cpp
-    )
+)
+target_link_libraries(loop_fusion_lib ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES})
 
-target_link_libraries(loop_fusion_node ${catkin_LIBRARIES}  ${OpenCV_LIBS} ${CERES_LIBRARIES}) 
+add_executable(loop_fusion_node src/pose_graph_node.cpp)
+target_link_libraries(loop_fusion_node loop_fusion_lib ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES}) 
