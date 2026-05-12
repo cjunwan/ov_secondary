@@ -368,6 +368,7 @@ int main(int argc, char **argv) {
     ros::Subscriber sub_point = n.subscribe("/vins_estimator/keyframe_point", 2000, point_callback);
     ros::Subscriber sub_trigger = n.subscribe("/failure_recovery/trigger", 10, trigger_callback);
     ros::Subscriber sub_restart = n.subscribe("/restart", 10, trigger_callback);
+    ros::Subscriber sub_vio_reset = n.subscribe("/ov_msckf/vio_reset", 10, trigger_callback);
     ros::Subscriber sub_extrinsic = n.subscribe("/vins_estimator/extrinsic", 2000, extrinsic_callback);
     ros::Subscriber sub_intrinsics = n.subscribe("/vins_estimator/intrinsics", 2000, intrinsics_callback);
 
