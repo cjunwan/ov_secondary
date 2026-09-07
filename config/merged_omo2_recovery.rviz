@@ -1,0 +1,174 @@
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+  - Class: rviz/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Cell Size: 1
+      Class: rviz/Grid
+      Color: 160; 160; 160
+      Enabled: true
+      Name: Ground grid
+      Plane: XY
+      Reference Frame: global
+    - Class: rviz/Path
+      Color: 0; 140; 40
+      Enabled: false
+      Line Style: Lines
+      Line Width: 0.07
+      Name: omo2 segment 1
+      Pose Style: None
+      Topic: /loop_fusion_omo2/path_1
+    - Class: rviz/Path
+      Color: 150; 255; 80
+      Enabled: false
+      Line Style: Lines
+      Line Width: 0.08
+      Name: omo2 segment 2 after restart
+      Pose Style: None
+      Topic: /loop_fusion_omo2/path_2
+    - Class: rviz/Path
+      Color: 0; 220; 80
+      Enabled: true
+      Line Style: Billboards
+      Line Width: 0.065
+      Name: omo2 BEFORE merge (frozen snapshot)
+      Pose Style: None
+      Topic: /recovery_comparison/omo2/pre_merge_path
+    - Class: rviz/Path
+      Color: 0; 220; 80
+      Enabled: true
+      Line Style: Billboards
+      Line Width: 0.08
+      Name: omo2 AFTER merge (combined path)
+      Pose Style: None
+      Topic: /recovery_comparison/omo2/post_merge_path
+    - Class: rviz/Path
+      Color: 0; 70; 180
+      Enabled: false
+      Line Style: Lines
+      Line Width: 0.07
+      Name: omo3 segment 1
+      Pose Style: None
+      Topic: /loop_fusion_omo3/path_1
+    - Class: rviz/Path
+      Color: 80; 210; 255
+      Enabled: false
+      Line Style: Lines
+      Line Width: 0.08
+      Name: omo3 segment 2 after restart
+      Pose Style: None
+      Topic: /loop_fusion_omo3/path_2
+    - Class: rviz/Path
+      Color: 30; 100; 255
+      Enabled: true
+      Line Style: Billboards
+      Line Width: 0.065
+      Name: omo3 BEFORE merge (frozen snapshot)
+      Pose Style: None
+      Topic: /recovery_comparison/omo3/pre_merge_path
+    - Class: rviz/Path
+      Color: 30; 100; 255
+      Enabled: true
+      Line Style: Billboards
+      Line Width: 0.08
+      Name: omo3 AFTER merge (combined path)
+      Pose Style: None
+      Topic: /recovery_comparison/omo3/post_merge_path
+    - Class: rviz/Path
+      Color: 150; 0; 150
+      Enabled: false
+      Line Style: Lines
+      Line Width: 0.07
+      Name: omo4 segment 1
+      Pose Style: None
+      Topic: /loop_fusion_omo4/path_1
+    - Class: rviz/Path
+      Color: 255; 120; 220
+      Enabled: false
+      Line Style: Lines
+      Line Width: 0.08
+      Name: omo4 segment 2 after restart
+      Pose Style: None
+      Topic: /loop_fusion_omo4/path_2
+    - Class: rviz/Path
+      Color: 240; 30; 220
+      Enabled: true
+      Line Style: Billboards
+      Line Width: 0.065
+      Name: omo4 BEFORE merge (frozen snapshot)
+      Pose Style: None
+      Topic: /recovery_comparison/omo4/pre_merge_path
+    - Class: rviz/Path
+      Color: 240; 30; 220
+      Enabled: true
+      Line Style: Billboards
+      Line Width: 0.08
+      Name: omo4 AFTER merge (combined path)
+      Pose Style: None
+      Topic: /recovery_comparison/omo4/post_merge_path
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /loop_fusion_omo2/pose_graph
+      Name: omo2 pose graph constraints
+      Queue Size: 100
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /loop_fusion_omo2/recovery_stitch
+      Name: omo2 recovery stitch
+      Queue Size: 100
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /loop_fusion_omo3/pose_graph
+      Name: omo3 pose graph constraints
+      Queue Size: 100
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /loop_fusion_omo3/recovery_stitch
+      Name: omo3 recovery stitch
+      Queue Size: 100
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /loop_fusion_omo4/pose_graph
+      Name: omo4 pose graph constraints
+      Queue Size: 100
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /loop_fusion_omo4/recovery_stitch
+      Name: omo4 recovery stitch
+      Queue Size: 100
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /recovery/robot_markers
+      Name: omo1-4 positions and trails
+      Queue Size: 100
+  Enabled: true
+  Global Options:
+    Background Color: 30; 30; 30
+    Fixed Frame: global
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz/Interact
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+    - Class: rviz/FocusCamera
+    - Class: rviz/Measure
+  Views:
+    Current:
+      Class: rviz/Orbit
+      Distance: 15
+      Focal Point:
+        X: 0
+        Y: 1.5
+        Z: 0
+      Name: Recovery overview
+      Pitch: 1.1
+      Target Frame: global
+      Yaw: 0.8
+Window Geometry:
+  Height: 900
+  Width: 1400

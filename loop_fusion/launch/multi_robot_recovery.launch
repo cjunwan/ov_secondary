@@ -1,0 +1,220 @@
+<launch>
+    <arg name="rviz" default="true" />
+    <!-- Keep visual-only and visual+range diagnostics in separate directories. -->
+    <arg name="experiment_tag" default="latest" />
+    <arg name="use_distance_recovery" default="true" />
+    <arg name="distance_recovery_rate_hz" default="3.0" />
+    <arg name="visual_recovery_candidate_interval" default="0.10" />
+    <arg name="inject_failure" default="false" />
+    <arg name="failure_robot" default="omo2" />
+    <arg name="failure_delay" default="45.0" />
+    <!-- true performs a safe output-frame restart for bag experiments. It
+         does not call OpenVINS' mid-motion initializer. -->
+    <arg name="simulate_local_frame_reset" default="false" />
+    <arg name="frame_reset_rotation_mode" default="yaw_only" />
+    <!-- Bag playback clock drives all three VIO instances from bag time. -->
+    <arg name="use_sim_time" default="true" />
+    <param name="/use_sim_time" value="$(arg use_sim_time)" />
+    <arg name="omo2_vio_config"
+         default="$(find ov_msckf)/../config/micro_omo/estimator_config.yaml" />
+    <arg name="omo3_vio_config"
+         default="$(find ov_msckf)/../config/micro_omo/estimator_config.yaml" />
+    <arg name="omo4_vio_config"
+         default="$(find ov_msckf)/../config/micro_omo/estimator_config.yaml" />
+    <arg name="omo2_config"
+         default="$(find loop_fusion)/../config/multi_omo2_recovery.yaml" />
+    <arg name="omo3_config"
+         default="$(find loop_fusion)/../config/multi_omo3_recovery.yaml" />
+    <arg name="omo4_config"
+         default="$(find loop_fusion)/../config/multi_omo4_recovery.yaml" />
+    <arg name="rviz_config"
+         default="$(find loop_fusion)/../config/merged_omo2_recovery.rviz" />
+
+    <!-- Known rectangular world layout: width 4.27 m, height 5.5 m. -->
+    <arg name="omo1_x" default="0.0" />
+    <arg name="omo1_y" default="0.0" />
+    <arg name="omo1_yaw_deg" default="0.0" />
+    <arg name="omo2_x" default="4.27" />
+    <arg name="omo2_y" default="0.0" />
+    <arg name="omo2_yaw_deg" default="90.0" />
+    <arg name="omo3_x" default="4.27" />
+    <arg name="omo3_y" default="5.5" />
+    <arg name="omo3_yaw_deg" default="180.0" />
+    <arg name="omo4_x" default="0.0" />
+    <arg name="omo4_y" default="5.5" />
+    <arg name="omo4_yaw_deg" default="-90.0" />
+    <!-- Physical robot-body headings above are not the yaw of poseimu's
+         camera/IMU frame. The VIO frame is 90 deg clockwise from the robot
+         forward axis for this bag/calibration. These yaw values align the
+         actual pose-graph paths with the measured rectangle. -->
+    <arg name="omo2_vio_yaw_deg" default="0.0" />
+    <arg name="omo3_vio_yaw_deg" default="90.0" />
+    <arg name="omo4_vio_yaw_deg" default="-180.0" />
+    <arg name="trajectory_yaw_correction_deg" default="0.0" />
+    <arg name="body_orientation_correction_deg" default="90.0" />
+
+    <node if="$(arg use_distance_recovery)"
+          name="nlink_to_pair_distances" pkg="loop_fusion"
+          type="nlink_to_pair_distances.py" output="screen" required="true">
+        <param name="output_topic" value="/group1/structure_distances" />
+        <rosparam param="input_topics">
+          [/omo1/nlink_linktrack_nodeframe2,
+           /omo2/nlink_linktrack_nodeframe2,
+           /omo3/nlink_linktrack_nodeframe2,
+           /omo4/nlink_linktrack_nodeframe2]
+        </rosparam>
+        <rosparam param="id_to_name">{'1': omo1, '2': omo2, '3': omo3, '4': omo4}</rosparam>
+        <param name="leader_name" value="omo1" />
+        <param name="group_id" value="1" />
+        <param name="max_distance" value="50.0" />
+    </node>
+
+    <!-- omo1 has no VIO stream in this bag and is known to remain stationary. -->
+    <node if="$(arg use_distance_recovery)"
+          name="omo1_static_anchor" pkg="loop_fusion"
+          type="static_world_pose.py" output="screen" required="true">
+        <param name="topic" value="/anchor/omo1" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="position">[$(arg omo1_x), $(arg omo1_y), 0.0]</rosparam>
+        <param name="yaw_deg" value="$(arg omo1_yaw_deg)" />
+        <param name="rate" value="30.0" />
+    </node>
+
+    <include file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo2" />
+        <arg name="node_name" value="ov_msckf_omo2" />
+        <arg name="config_path" value="$(arg omo2_vio_config)" />
+        <arg name="experiment_tag" value="$(arg experiment_tag)" />
+    </include>
+    <include file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo3" />
+        <arg name="node_name" value="ov_msckf_omo3" />
+        <arg name="config_path" value="$(arg omo3_vio_config)" />
+        <arg name="experiment_tag" value="$(arg experiment_tag)" />
+    </include>
+    <include file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo4" />
+        <arg name="node_name" value="ov_msckf_omo4" />
+        <arg name="config_path" value="$(arg omo4_vio_config)" />
+        <arg name="experiment_tag" value="$(arg experiment_tag)" />
+    </include>
+
+    <include file="$(find loop_fusion)/launch/robot_recovery_instance.launch">
+        <arg name="robot" value="omo2" />
+        <arg name="config_path" value="$(arg omo2_config)" />
+        <arg name="initial_x" value="$(arg omo2_x)" />
+        <arg name="initial_y" value="$(arg omo2_y)" />
+        <arg name="initial_yaw_deg" value="$(arg omo2_vio_yaw_deg)" />
+        <arg name="use_distance_recovery" value="$(arg use_distance_recovery)" />
+        <arg name="distance_recovery_rate_hz" value="$(arg distance_recovery_rate_hz)" />
+        <arg name="visual_recovery_candidate_interval" value="$(arg visual_recovery_candidate_interval)" />
+        <arg name="relative_recovery_log_dir"
+             value="/home/junwan/microswarm_ws/logs/relative_recovery/$(arg experiment_tag)" />
+        <arg name="simulate_local_frame_reset" value="$(arg simulate_local_frame_reset)" />
+        <arg name="frame_reset_rotation_mode" value="$(arg frame_reset_rotation_mode)" />
+        <arg name="frame_reset_log_dir"
+             value="/home/junwan/microswarm_ws/logs/frame_reset/$(arg experiment_tag)" />
+    </include>
+    <include file="$(find loop_fusion)/launch/robot_recovery_instance.launch">
+        <arg name="robot" value="omo3" />
+        <arg name="config_path" value="$(arg omo3_config)" />
+        <arg name="initial_x" value="$(arg omo3_x)" />
+        <arg name="initial_y" value="$(arg omo3_y)" />
+        <arg name="initial_yaw_deg" value="$(arg omo3_vio_yaw_deg)" />
+        <arg name="use_distance_recovery" value="$(arg use_distance_recovery)" />
+        <arg name="distance_recovery_rate_hz" value="$(arg distance_recovery_rate_hz)" />
+        <arg name="visual_recovery_candidate_interval" value="$(arg visual_recovery_candidate_interval)" />
+        <arg name="relative_recovery_log_dir"
+             value="/home/junwan/microswarm_ws/logs/relative_recovery/$(arg experiment_tag)" />
+        <arg name="simulate_local_frame_reset" value="$(arg simulate_local_frame_reset)" />
+        <arg name="frame_reset_rotation_mode" value="$(arg frame_reset_rotation_mode)" />
+        <arg name="frame_reset_log_dir"
+             value="/home/junwan/microswarm_ws/logs/frame_reset/$(arg experiment_tag)" />
+    </include>
+    <include file="$(find loop_fusion)/launch/robot_recovery_instance.launch">
+        <arg name="robot" value="omo4" />
+        <arg name="config_path" value="$(arg omo4_config)" />
+        <arg name="initial_x" value="$(arg omo4_x)" />
+        <arg name="initial_y" value="$(arg omo4_y)" />
+        <arg name="initial_yaw_deg" value="$(arg omo4_vio_yaw_deg)" />
+        <arg name="use_distance_recovery" value="$(arg use_distance_recovery)" />
+        <arg name="distance_recovery_rate_hz" value="$(arg distance_recovery_rate_hz)" />
+        <arg name="visual_recovery_candidate_interval" value="$(arg visual_recovery_candidate_interval)" />
+        <arg name="relative_recovery_log_dir"
+             value="/home/junwan/microswarm_ws/logs/relative_recovery/$(arg experiment_tag)" />
+        <arg name="simulate_local_frame_reset" value="$(arg simulate_local_frame_reset)" />
+        <arg name="frame_reset_rotation_mode" value="$(arg frame_reset_rotation_mode)" />
+        <arg name="frame_reset_log_dir"
+             value="/home/junwan/microswarm_ws/logs/frame_reset/$(arg experiment_tag)" />
+    </include>
+
+    <!-- Reproducible ROS-time recovery injection.  This intentionally starts
+         a new pose-graph sequence and visual/range recovery without resetting
+         the healthy VIO process used by the recorded-bag experiment.  Actual
+         VIO lifecycle control is isolated on /<robot>/vio_restart. -->
+    <node if="$(arg inject_failure)" name="inject_recovery_failure"
+          pkg="loop_fusion" type="inject_vio_failure.py" output="screen"
+          args="--delay $(arg failure_delay) --topic /$(arg failure_robot)/recovery_restart" />
+
+    <!-- Pose-graph positions are already world-aligned with the VIO-frame yaw
+         values above. These display-only adapters leave positions unchanged
+         and rotate only the VIO orientation into the robot body heading. -->
+    <node name="omo2_recovery_to_display_world" pkg="loop_fusion"
+          type="initial_pose_to_world.py" output="screen">
+        <param name="input_topic" value="/ov_secondary_omo2/poseimu" />
+        <param name="output_topic" value="/recovery_display_world/omo2" />
+        <param name="input_type" value="PoseWithCovarianceStamped" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="initial_position">[$(arg omo2_x), $(arg omo2_y), 0.0]</rosparam>
+        <param name="initial_yaw_deg" value="$(arg omo2_yaw_deg)" />
+        <param name="trajectory_yaw_correction_deg" value="$(arg trajectory_yaw_correction_deg)" />
+        <param name="orientation_yaw_correction_deg" value="$(arg body_orientation_correction_deg)" />
+        <param name="input_already_world_aligned" value="true" />
+    </node>
+    <node name="omo3_recovery_to_display_world" pkg="loop_fusion"
+          type="initial_pose_to_world.py" output="screen">
+        <param name="input_topic" value="/ov_secondary_omo3/poseimu" />
+        <param name="output_topic" value="/recovery_display_world/omo3" />
+        <param name="input_type" value="PoseWithCovarianceStamped" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="initial_position">[$(arg omo3_x), $(arg omo3_y), 0.0]</rosparam>
+        <param name="initial_yaw_deg" value="$(arg omo3_yaw_deg)" />
+        <param name="trajectory_yaw_correction_deg" value="$(arg trajectory_yaw_correction_deg)" />
+        <param name="orientation_yaw_correction_deg" value="$(arg body_orientation_correction_deg)" />
+        <param name="input_already_world_aligned" value="true" />
+    </node>
+    <node name="omo4_recovery_to_display_world" pkg="loop_fusion"
+          type="initial_pose_to_world.py" output="screen">
+        <param name="input_topic" value="/ov_secondary_omo4/poseimu" />
+        <param name="output_topic" value="/recovery_display_world/omo4" />
+        <param name="input_type" value="PoseWithCovarianceStamped" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="initial_position">[$(arg omo4_x), $(arg omo4_y), 0.0]</rosparam>
+        <param name="initial_yaw_deg" value="$(arg omo4_yaw_deg)" />
+        <param name="trajectory_yaw_correction_deg" value="$(arg trajectory_yaw_correction_deg)" />
+        <param name="orientation_yaw_correction_deg" value="$(arg body_orientation_correction_deg)" />
+        <param name="input_already_world_aligned" value="true" />
+    </node>
+
+    <node name="multi_robot_visualizer" pkg="loop_fusion"
+          type="multi_robot_visualizer.py" output="screen" required="false">
+        <param name="world_frame" value="global" />
+        <param name="omo2_topic" value="/recovery_display_world/omo2" />
+        <param name="omo3_topic" value="/recovery_display_world/omo3" />
+        <param name="omo4_topic" value="/recovery_display_world/omo4" />
+        <param name="omo2_pose_type" value="PoseStamped" />
+        <param name="omo3_pose_type" value="PoseStamped" />
+        <param name="omo4_pose_type" value="PoseStamped" />
+        <rosparam subst_value="true" param="omo1_initial_position">[$(arg omo1_x), $(arg omo1_y), 0.0]</rosparam>
+        <rosparam subst_value="true" param="omo2_initial_position">[$(arg omo2_x), $(arg omo2_y), 0.0]</rosparam>
+        <rosparam subst_value="true" param="omo3_initial_position">[$(arg omo3_x), $(arg omo3_y), 0.0]</rosparam>
+        <rosparam subst_value="true" param="omo4_initial_position">[$(arg omo4_x), $(arg omo4_y), 0.0]</rosparam>
+        <param name="omo1_initial_yaw_deg" value="$(arg omo1_yaw_deg)" />
+        <param name="omo2_initial_yaw_deg" value="$(arg omo2_yaw_deg)" />
+        <param name="omo3_initial_yaw_deg" value="$(arg omo3_yaw_deg)" />
+        <param name="omo4_initial_yaw_deg" value="$(arg omo4_yaw_deg)" />
+    </node>
+
+    <node if="$(arg rviz)" name="recovery_rviz" pkg="rviz" type="rviz"
+          args="-d $(arg rviz_config)" output="screen" required="false" />
+</launch>

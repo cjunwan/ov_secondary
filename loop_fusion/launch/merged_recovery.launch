@@ -1,0 +1,207 @@
+<launch>
+    <arg name="target" default="omo2" />
+    <arg name="range_assisted" default="true" />
+    <!-- true: recompute omo3/omo4 VIO; false: consume pose topics supplied
+         through neighbor{3,4}_pose_topic (e.g. recorded odomimu). -->
+    <arg name="run_neighbor_vio" default="true" />
+    <arg name="neighbor3_pose_topic" default="/ov_msckf_omo3/poseimu" />
+    <arg name="neighbor4_pose_topic" default="/ov_msckf_omo4/poseimu" />
+    <arg name="neighbor_pose_type" default="PoseWithCovarianceStamped" />
+    <arg name="play_bag" default="false" />
+    <arg name="bag"
+         default="/home/junwan/1.datasets/merged/vio_results.bag" />
+    <arg name="bag_rate" default="0.5" />
+    <arg name="bag_start" default="0.0" />
+    <arg name="inject_failure" default="false" />
+    <arg name="failure_delay" default="45.0" />
+    <arg name="rviz" default="false" />
+    <arg name="rviz_config"
+         default="$(find loop_fusion)/../config/merged_omo2_recovery.rviz" />
+    <arg name="config_path"
+         default="$(find loop_fusion)/../config/merged_omo2_recovery.yaml" />
+    <arg name="vio_config"
+         default="$(find ov_msckf)/../config/multi_test_omo2/estimator_config.yaml" />
+
+    <!-- Measured initial poses in the common world frame.  The world +x axis
+         points from omo1 to omo2 and +y from omo2 to omo3.  Yaw is the
+         local-VIO-frame to world-frame rotation, not body roll/pitch. -->
+    <arg name="omo2_initial_x" default="4.27" />
+    <arg name="omo2_initial_y" default="0.0" />
+    <arg name="omo2_initial_z" default="0.0" />
+    <arg name="omo2_initial_yaw_deg" default="90.0" />
+    <arg name="omo1_initial_x" default="0.0" />
+    <arg name="omo1_initial_y" default="0.0" />
+    <arg name="omo1_initial_z" default="0.0" />
+    <arg name="omo1_initial_yaw_deg" default="0.0" />
+    <arg name="omo3_initial_x" default="4.27" />
+    <arg name="omo3_initial_y" default="5.5" />
+    <arg name="omo3_initial_z" default="0.0" />
+    <arg name="omo3_initial_yaw_deg" default="180.0" />
+    <arg name="omo4_initial_x" default="0.0" />
+    <arg name="omo4_initial_y" default="5.5" />
+    <arg name="omo4_initial_z" default="0.0" />
+    <arg name="omo4_initial_yaw_deg" default="-90.0" />
+
+    <!-- vio_results.bag contains native NLink frames, not the normalized
+         RobotPairDistances topic consumed by recovery. -->
+    <node if="$(arg range_assisted)" name="nlink_to_pair_distances"
+          pkg="loop_fusion" type="nlink_to_pair_distances.py"
+          output="screen" required="true">
+        <param name="output_topic" value="/group1/structure_distances" />
+        <rosparam param="input_topics">
+          [/omo1/nlink_linktrack_nodeframe2,
+           /omo2/nlink_linktrack_nodeframe2,
+           /omo3/nlink_linktrack_nodeframe2,
+           /omo4/nlink_linktrack_nodeframe2]
+        </rosparam>
+        <rosparam param="id_to_name">{'1': omo1, '2': omo2, '3': omo3, '4': omo4}</rosparam>
+        <param name="leader_name" value="omo1" />
+        <param name="group_id" value="1" />
+        <param name="max_distance" value="50.0" />
+    </node>
+
+    <!-- The merged bag contains raw VIO inputs for omo2, omo3, and omo4. -->
+    <include file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo2" />
+        <arg name="node_name" value="ov_msckf_omo2" />
+        <arg name="config_path" value="$(arg vio_config)" />
+    </include>
+    <include if="$(arg run_neighbor_vio)" file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo3" />
+        <arg name="node_name" value="ov_msckf_omo3" />
+        <arg name="config_path" value="$(arg vio_config)" />
+    </include>
+    <include if="$(arg run_neighbor_vio)" file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo4" />
+        <arg name="node_name" value="ov_msckf_omo4" />
+        <arg name="config_path" value="$(arg vio_config)" />
+    </include>
+
+    <node if="$(arg range_assisted)" name="omo3_initial_pose_to_world"
+          pkg="loop_fusion" type="initial_pose_to_world.py"
+          output="screen" required="true">
+        <param name="input_topic" value="$(arg neighbor3_pose_topic)" />
+        <param name="input_type" value="$(arg neighbor_pose_type)" />
+        <param name="output_topic" value="/initial_world_pose/omo3" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="initial_position">
+          [$(arg omo3_initial_x), $(arg omo3_initial_y), $(arg omo3_initial_z)]
+        </rosparam>
+        <param name="initial_yaw_deg" value="$(arg omo3_initial_yaw_deg)" />
+    </node>
+    <node if="$(arg range_assisted)" name="omo4_initial_pose_to_world"
+          pkg="loop_fusion" type="initial_pose_to_world.py"
+          output="screen" required="true">
+        <param name="input_topic" value="$(arg neighbor4_pose_topic)" />
+        <param name="input_type" value="$(arg neighbor_pose_type)" />
+        <param name="output_topic" value="/initial_world_pose/omo4" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="initial_position">
+          [$(arg omo4_initial_x), $(arg omo4_initial_y), $(arg omo4_initial_z)]
+        </rosparam>
+        <param name="initial_yaw_deg" value="$(arg omo4_initial_yaw_deg)" />
+    </node>
+
+    <node name="loop_fusion_omo2" pkg="loop_fusion" type="loop_fusion_node"
+          output="screen" args="$(arg config_path)" required="true">
+        <rosparam subst_value="true" param="initial_world_position">
+          [$(arg omo2_initial_x), $(arg omo2_initial_y), $(arg omo2_initial_z)]
+        </rosparam>
+        <param name="initial_world_yaw_deg" value="$(arg omo2_initial_yaw_deg)" />
+        <remap from="/cam0/image_raw"
+               to="/omo2/camera/infra1/image_rect_raw" />
+        <remap from="/vins_estimator/extrinsic"
+               to="/ov_msckf_omo2/loop_extrinsic" />
+        <remap from="/vins_estimator/keyframe_point"
+               to="/ov_msckf_omo2/loop_feats" />
+        <remap from="/vins_estimator/keyframe_pose"
+               to="/ov_msckf_omo2/loop_pose" />
+        <remap from="/vins_estimator/intrinsics"
+               to="/ov_msckf_omo2/loop_intrinsics" />
+        <remap from="/vins_estimator/pose"
+               to="/ov_msckf_omo2/poseimu" />
+        <remap from="/failure_recovery/recovered_pose"
+               to="/omo2/failure_recovery/recovered_pose" />
+        <remap from="/failure_recovery/trigger"
+               to="/omo2/failure_recovery/trigger" />
+        <remap from="/restart" to="/omo2/restart" />
+        <remap from="/ov_msckf/vio_reset" to="/ov_msckf_omo2/vio_reset" />
+
+        <remap from="/loop_fusion_omo2/match_image"
+               to="/ov_secondary_omo2/match_image" />
+        <remap from="/loop_fusion_omo2/pose_rect"
+               to="/ov_secondary_omo2/poseimu" />
+        <remap from="/loop_fusion_omo2/odometry_rect"
+               to="/ov_secondary_omo2/odomimu" />
+    </node>
+
+    <node name="failure_recovery_omo2" pkg="failure_recovery"
+          type="failure_recovery_node" output="screen"
+          args="$(arg config_path)" required="true">
+        <remap from="/cam0/image_raw"
+               to="/omo2/camera/infra1/image_rect_raw" />
+        <remap from="/vins_estimator/keyframe_point"
+               to="/ov_msckf_omo2/loop_feats" />
+        <remap from="/vins_estimator/keyframe_pose"
+               to="/ov_msckf_omo2/loop_pose" />
+        <remap from="/vins_estimator/intrinsics"
+               to="/ov_msckf_omo2/loop_intrinsics" />
+        <remap from="/vins_estimator/extrinsic"
+               to="/ov_msckf_omo2/loop_extrinsic" />
+        <remap from="/failure_recovery/trigger"
+               to="/omo2/failure_recovery/trigger" />
+        <remap from="/failure_recovery/recovered_pose"
+               to="/omo2/failure_recovery/recovered_pose" />
+        <remap from="/restart" to="/omo2/restart" />
+        <remap from="/ov_msckf/vio_reset" to="/ov_msckf_omo2/vio_reset" />
+    </node>
+
+    <!-- Distinct robot bodies, labels and trails in the common world frame. -->
+    <node if="$(arg rviz)" name="multi_robot_visualizer"
+          pkg="loop_fusion" type="multi_robot_visualizer.py"
+          output="screen" required="false">
+        <param name="world_frame" value="global" />
+        <param name="omo2_topic" value="/ov_secondary_omo2/poseimu" />
+        <param name="omo3_topic" value="/initial_world_pose/omo3" />
+        <param name="omo4_topic" value="/initial_world_pose/omo4" />
+        <rosparam subst_value="true" param="omo1_initial_position">
+          [$(arg omo1_initial_x), $(arg omo1_initial_y), $(arg omo1_initial_z)]
+        </rosparam>
+        <param name="omo1_initial_yaw_deg" value="$(arg omo1_initial_yaw_deg)" />
+        <rosparam subst_value="true" param="omo2_initial_position">
+          [$(arg omo2_initial_x), $(arg omo2_initial_y), $(arg omo2_initial_z)]
+        </rosparam>
+        <param name="omo2_initial_yaw_deg" value="$(arg omo2_initial_yaw_deg)" />
+        <rosparam subst_value="true" param="omo3_initial_position">
+          [$(arg omo3_initial_x), $(arg omo3_initial_y), $(arg omo3_initial_z)]
+        </rosparam>
+        <param name="omo3_initial_yaw_deg" value="$(arg omo3_initial_yaw_deg)" />
+        <rosparam subst_value="true" param="omo4_initial_position">
+          [$(arg omo4_initial_x), $(arg omo4_initial_y), $(arg omo4_initial_z)]
+        </rosparam>
+        <param name="omo4_initial_yaw_deg" value="$(arg omo4_initial_yaw_deg)" />
+    </node>
+
+    <!-- Recovery-specific visualization.  It uses the private topic namespace
+         of loop_fusion_omo2 and the common world frame (global). -->
+    <node if="$(arg rviz)" name="recovery_rviz" pkg="rviz" type="rviz"
+          args="-d $(arg rviz_config)" output="screen" required="false" />
+
+    <!-- Starts before playback and schedules against the first non-zero ROS
+         clock, making the forced failure offset reproducible across runs. -->
+    <node if="$(arg inject_failure)" name="inject_omo2_failure"
+          pkg="loop_fusion" type="inject_vio_failure.py"
+          args="--delay $(arg failure_delay) --topic /omo2/restart"
+          output="screen" required="false" />
+
+    <!-- Delay playback so VIO and the two recovery nodes have subscribed
+         before the first calibration/image messages arrive. Recorded
+         /ov_msckf_omo*/odomimu topics are harmless: this pipeline consumes
+         the newly generated poseimu/loop_* outputs instead. -->
+    <group if="$(arg play_bag)">
+        <param name="/use_sim_time" value="true" />
+        <node name="vio_results_bag" pkg="rosbag" type="play"
+              args="--clock -d 3 -r $(arg bag_rate) -s $(arg bag_start) $(arg bag)"
+              output="log" required="true" />
+    </group>
+</launch>

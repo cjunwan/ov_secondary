@@ -13,8 +13,10 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(Boost REQUIRED COMPONENTS filesystem program_options system)
 include_directories(${Boost_INCLUDE_DIRS})
 
+# ROS Noetic cv_bridge is linked against Ubuntu's OpenCV 4.2. Do not let a
+# /usr/local OpenCV installation introduce two incompatible ABIs in one node.
 set(OpenCV_DIR "/usr/lib/x86_64-linux-gnu/cmake/opencv4")
-find_package(OpenCV 4 REQUIRED)
+find_package(OpenCV 4.2 REQUIRED)
 
 # set(EIGEN_INCLUDE_DIR "/usr/local/include/eigen3")
 find_package(Ceres REQUIRED)

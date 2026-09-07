@@ -1,0 +1,46 @@
+%YAML:1.0
+imu: 1
+output_path: "/tmp/multi_omo3_recovery/"
+load_previous_pose_graph: 0
+pose_graph_save_path: "/tmp/multi_omo3_recovery/pose_graph/"
+save_image: 1
+recall_ignore_recent_ct: 75
+min_score: 0.030
+pnp_inflation: 10.0
+max_theta_diff: 170.0
+max_pos_diff: 1.5
+min_loop_feat_num: 20
+skip_dist: 0.02
+skip_cnt: 0
+initial_world_position: [4.27, 5.5, 0.0]
+initial_world_yaw_deg: 180.0
+
+robot_name: "omo3"
+distance_topic: "/group1/structure_distances"
+distance_global_frame: "global"
+distance_use_header_timestamps: 1
+distance_planar_mode: 1
+distance_sigma: 0.15
+distance_max_value: 50.0
+distance_max_age: 8.0
+distance_sync_tolerance: 0.30
+distance_sample_interval: 0.05
+distance_recovery_rate_hz: 3.0
+distance_wait_for_visual: 5.0
+visual_recovery_position_sigma: 0.10
+visual_recovery_yaw_sigma: 3.0
+visual_recovery_sync_tolerance: 0.30
+distance_min_neighbors: 3
+distance_min_factors: 24
+distance_min_temporal_span: 1.0
+distance_min_self_motion: 0.15
+distance_max_condition_number: 500.0
+distance_max_normalized_rms: 3.5
+distance_max_position_jump: 3.0
+distance_max_restart_position_gap: 1.0
+distance_max_yaw_deviation: 30.0
+distance_range_only_position_prior_sigma: 0.50
+distance_range_only_yaw_prior_sigma: 15.0
+neighbor_names: ["omo1", "omo2", "omo4"]
+neighbor_pose_topics: ["/anchor/omo1", "/ov_secondary_omo2/poseimu", "/ov_secondary_omo4/poseimu"]
+neighbor_pose_types: ["PoseStamped", "PoseWithCovarianceStamped", "PoseWithCovarianceStamped"]

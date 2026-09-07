@@ -26,3 +26,51 @@ skip_dist: 0.02 # meters, distance between keyframes
 skip_cnt: 0 # num, skip every n frames (typically don't need unless high framerate)
 
 
+# inter-robot range-assisted recovery parameters
+# Leave robot_name empty for the visual-only baseline. Set it to the exact name
+# used in RobotPairDistances to enable visual+range and range-only fallback.
+robot_name: ""                                 # e.g. "UAV1"
+distance_topic: "/group1/structure_distances" # loop_fusion/RobotPairDistances
+distance_global_frame: "global"               # frame required on all neighbor poses
+distance_use_header_timestamps: 1              # 0: use ROS receipt time for every input
+distance_sigma: 0.10                           # one-sigma range noise [m]
+distance_max_value: 100.0                      # reject non-physical/out-of-scope ranges [m]
+distance_max_age: 5.0                          # factor window around latest sample [s]
+distance_sync_tolerance: 0.15                  # max range/self/neighbor time offset [s]
+distance_sample_interval: 0.05                 # per-neighbor factor downsampling [s]
+distance_recovery_rate_hz: 3.0                 # asynchronous range solve frequency [Hz]
+
+# A normal visual recovery gets this long to arrive before range-only fallback.
+distance_wait_for_visual: 3.0                  # [s]
+visual_recovery_position_sigma: 0.10           # visual position factor sigma [m]
+visual_recovery_yaw_sigma: 3.0                 # visual yaw factor sigma [deg]
+visual_recovery_sync_tolerance: 0.30            # image/keyframe timestamp mismatch [s]
+
+# Range-only acceptance gates. Recovery remains pending when any gate fails.
+distance_min_neighbors: 2
+distance_min_factors: 8
+distance_min_temporal_span: 0.5                 # [s]
+distance_min_self_motion: 0.15                  # [m]
+distance_max_condition_number: 10000.0
+distance_max_normalized_rms: 3.0                # RMS / distance_sigma
+distance_max_position_jump: 3.0                 # latest recovered pose vs. pre-failure pose [m]
+distance_max_restart_position_gap: 1.0          # first recovered pose vs. pre-failure pose [m]
+distance_max_yaw_deviation: 30.0                # solved yaw vs. continuity/visual prior [deg]
+distance_range_only_position_prior_sigma: 0.50  # restart continuity position prior [m]
+distance_range_only_yaw_prior_sigma: 15.0       # restart continuity yaw prior [deg]
+
+# Each neighbor pose MUST already be expressed in distance_global_frame. Raw,
+# independently initialized VIO poses are not valid anchors. The three lists are
+# parallel. Supported types: PoseStamped, PoseWithCovarianceStamped, Odometry.
+neighbor_names: []
+# - "UAV2"
+# - "UAV4"
+neighbor_pose_topics: []
+# - "/UAV2/ov_secondary/poseimu"
+# - "/UAV4/ov_secondary/poseimu"
+neighbor_pose_types: []
+# - "PoseWithCovarianceStamped"
+# - "PoseWithCovarianceStamped"
+
+# Used only when neighbor_pose_topics is omitted.
+neighbor_pose_suffix: "/global_pose"

@@ -1,0 +1,43 @@
+%YAML:1.0
+
+# Same target/bag settings as merged_omo2_recovery.yaml, with range recovery
+# disabled.  Use this file for the controlled visual-loop-only baseline.
+imu: 1
+output_path: "/tmp/omo2_visual_only/"
+load_previous_pose_graph: 0
+pose_graph_save_path: "/tmp/omo2_visual_only/pose_graph/"
+save_image: 1
+recall_ignore_recent_ct: 75
+min_score: 0.030
+pnp_inflation: 10.0
+max_theta_diff: 170.0
+max_pos_diff: 1.5
+min_loop_feat_num: 20
+skip_dist: 0.02
+skip_cnt: 0
+initial_world_position: [0.0, 0.0, 0.0]
+initial_world_yaw_deg: 0.0
+
+robot_name: ""
+distance_topic: "/group1/structure_distances"
+distance_global_frame: "global"
+distance_use_header_timestamps: 1
+distance_sigma: 0.15
+distance_max_value: 50.0
+distance_max_age: 8.0
+distance_sync_tolerance: 0.30
+distance_sample_interval: 0.05
+distance_wait_for_visual: 5.0
+visual_recovery_position_sigma: 0.10
+visual_recovery_yaw_sigma: 3.0
+distance_min_neighbors: 2
+distance_min_factors: 20
+distance_min_temporal_span: 1.0
+distance_min_self_motion: 0.15
+distance_max_condition_number: 10000.0
+distance_max_normalized_rms: 3.5
+distance_max_position_jump: 8.0
+neighbor_names: []
+neighbor_pose_topics: []
+neighbor_pose_types: []
+neighbor_pose_suffix: "/global_pose"

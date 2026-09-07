@@ -20,6 +20,8 @@
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <visualization_msgs/Marker.h>
 #include <std_msgs/Bool.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <loop_fusion/RobotPairDistances.h>
 #include <cv_bridge/cv_bridge.h>
 #include <iostream>
 #include <ros/package.h>
@@ -34,6 +36,9 @@
 #include "pose_graph.h"
 #include "utility/CameraPoseVisualization.h"
 #include "parameters.h"
+#include <cerrno>
+#include <cstdlib>
+#include <sys/stat.h>
 #define SKIP_FIRST_CNT 2
 using namespace std;
 
@@ -82,6 +87,25 @@ Eigen::Vector3d last_t(-100, -100, -100);
 double last_image_time = -1;
 
 ros::Publisher pub_point_cloud, pub_margin_cloud;
+
+bool ensure_directory(const std::string &path)
+{
+    if (path.empty()) return false;
+    std::string normalized = path;
+    if (normalized.back() != '/') normalized.push_back('/');
+    for (size_t position = 1; position < normalized.size(); ++position)
+    {
+        if (normalized[position] != '/') continue;
+        const std::string directory = normalized.substr(0, position);
+        if (!directory.empty() && ::mkdir(directory.c_str(), 0755) != 0 && errno != EEXIST)
+        {
+            ROS_ERROR("[POSEGRAPH] Failed to create directory %s: errno %d",
+                      directory.c_str(), errno);
+            return false;
+        }
+    }
+    return true;
+}
 
 void new_sequence()
 {
@@ -288,7 +312,9 @@ void recovery_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr 
     Vector3d P_rec(pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y, pose_msg->pose.pose.position.z);
     Quaterniond Q_rec(pose_msg->pose.pose.orientation.w, pose_msg->pose.pose.orientation.x,
                       pose_msg->pose.pose.orientation.y, pose_msg->pose.pose.orientation.z);
-    double timestamp = pose_msg->header.stamp.toSec();
+    double timestamp = posegraph.dist_config_.use_header_timestamps && !pose_msg->header.stamp.isZero()
+                           ? pose_msg->header.stamp.toSec()
+                           : ros::Time::now().toSec();
     posegraph.updateRecoveryPose(P_rec, Q_rec, timestamp);
 }
 
@@ -296,10 +322,69 @@ void restart_callback(const std_msgs::Bool::ConstPtr &msg)
 {
     if (msg->data)
     {
-        ROS_WARN("[POSEGRAPH] /restart received — starting new sequence for recovery.");
+        static ros::WallTime last_restart;
+        const ros::WallTime now = ros::WallTime::now();
+        if (!last_restart.isZero() && (now - last_restart).toSec() < 1.0)
+        {
+            ROS_WARN("[POSEGRAPH] Ignoring duplicate reset signal received within 1 second.");
+            return;
+        }
+        last_restart = now;
+        ROS_WARN("[POSEGRAPH] VIO reset received — starting new sequence for recovery.");
         new_sequence();
         posegraph.onRestart();
     }
+}
+
+// ─── Distance recovery callbacks ──────────────────────────────────────────────
+
+void distance_callback(const loop_fusion::RobotPairDistances::ConstPtr &msg)
+{
+    if (msg->robot_a_names.size() != msg->robot_b_names.size() ||
+        msg->robot_a_names.size() != msg->distances.size())
+    {
+        ROS_ERROR_THROTTLE(1.0, "[POSEGRAPH] Malformed RobotPairDistances: a=%zu b=%zu d=%zu",
+                           msg->robot_a_names.size(), msg->robot_b_names.size(), msg->distances.size());
+        return;
+    }
+    double ts = posegraph.dist_config_.use_header_timestamps && !msg->header.stamp.isZero()
+                    ? msg->header.stamp.toSec()
+                    : ros::Time::now().toSec();
+    for (size_t k = 0; k < msg->distances.size(); k++)
+    {
+        posegraph.addDistanceConstraint(msg->robot_a_names[k], msg->robot_b_names[k],
+                                         msg->distances[k], ts);
+    }
+}
+
+void neighbor_pose_callback(const geometry_msgs::PoseStamped::ConstPtr &msg,
+                             const std::string &robot_name)
+{
+    Eigen::Vector3d pos(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
+    const double timestamp = posegraph.dist_config_.use_header_timestamps && !msg->header.stamp.isZero()
+                                 ? msg->header.stamp.toSec()
+                                 : ros::Time::now().toSec();
+    posegraph.updateNeighborPose(robot_name, pos, timestamp, msg->header.frame_id);
+}
+
+void neighbor_pose_cov_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &msg,
+                                 const std::string &robot_name)
+{
+    Eigen::Vector3d pos(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
+    const double timestamp = posegraph.dist_config_.use_header_timestamps && !msg->header.stamp.isZero()
+                                 ? msg->header.stamp.toSec()
+                                 : ros::Time::now().toSec();
+    posegraph.updateNeighborPose(robot_name, pos, timestamp, msg->header.frame_id);
+}
+
+void neighbor_odom_callback(const nav_msgs::Odometry::ConstPtr &msg,
+                            const std::string &robot_name)
+{
+    Eigen::Vector3d pos(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
+    const double timestamp = posegraph.dist_config_.use_header_timestamps && !msg->header.stamp.isZero()
+                                 ? msg->header.stamp.toSec()
+                                 : ros::Time::now().toSec();
+    posegraph.updateNeighborPose(robot_name, pos, timestamp, msg->header.frame_id);
 }
 
 void extrinsic_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
@@ -564,6 +649,8 @@ int main(int argc, char **argv)
 
     fsSettings["pose_graph_save_path"] >> POSE_GRAPH_SAVE_PATH;
     fsSettings["output_path"] >> VINS_RESULT_PATH;
+    if (!ensure_directory(VINS_RESULT_PATH) || !ensure_directory(POSE_GRAPH_SAVE_PATH))
+        return 1;
     fsSettings["save_image"] >> DEBUG_IMAGE;
     fsSettings["skip_dist"] >> SKIP_DIS;
     fsSettings["skip_cnt"] >> SKIP_CNT;
@@ -581,7 +668,131 @@ int main(int argc, char **argv)
     fout.close();
 
     int USE_IMU = fsSettings["imu"];
+
+    // Known initial target pose anchors the pre-failure trajectory in world.
+    // ROS params override YAML so each experiment can supply measured values
+    // without editing the checked-in config.
+    std::vector<double> initial_world_position(3, 0.0);
+    cv::FileNode initial_position_node = fsSettings["initial_world_position"];
+    if (initial_position_node.type() == cv::FileNode::SEQ && initial_position_node.size() == 3)
+    {
+        size_t i = 0;
+        for (auto it = initial_position_node.begin(); it != initial_position_node.end(); ++it)
+            initial_world_position[i++] = (double)*it;
+    }
+    double initial_world_yaw_deg = 0.0;
+    cv::FileNode initial_yaw_node = fsSettings["initial_world_yaw_deg"];
+    if (!initial_yaw_node.empty()) initial_world_yaw_deg = (double)initial_yaw_node;
+    n.getParam("initial_world_position", initial_world_position);
+    n.param("initial_world_yaw_deg", initial_world_yaw_deg, initial_world_yaw_deg);
+    if (initial_world_position.size() != 3)
+    {
+        ROS_FATAL("[POSEGRAPH] initial_world_position must contain exactly three values.");
+        return 1;
+    }
+    posegraph.setInitialAlignment(
+        Vector3d(initial_world_position[0], initial_world_position[1], initial_world_position[2]),
+        initial_world_yaw_deg);
     posegraph.setIMUFlag(USE_IMU);
+
+    // ── Distance recovery config ──
+    {
+        cv::FileStorage fs(config_file, cv::FileStorage::READ);
+        if (fs.isOpened())
+        {
+            std::string rname;
+            fs["robot_name"] >> rname;
+            if (!rname.empty())
+            {
+                posegraph.dist_config_.robot_name = rname;
+                posegraph.dist_config_.use_distance_recovery = true;
+                printf("[POSEGRAPH]: Distance recovery enabled for robot: %s\n", rname.c_str());
+            }
+
+            std::string global_frame;
+            fs["distance_global_frame"] >> global_frame;
+            if (!global_frame.empty()) posegraph.dist_config_.global_frame = global_frame;
+
+            auto read_positive_double = [&fs](const char *key, double &value) {
+                cv::FileNode node = fs[key];
+                if (!node.empty()) {
+                    double candidate = (double)node;
+                    if (candidate > 0.0) value = candidate;
+                }
+            };
+            auto read_positive_int = [&fs](const char *key, int &value) {
+                cv::FileNode node = fs[key];
+                if (!node.empty()) {
+                    int candidate = (int)node;
+                    if (candidate > 0) value = candidate;
+                }
+            };
+            read_positive_double("distance_sigma", posegraph.dist_config_.distance_sigma);
+            read_positive_double("distance_max_age", posegraph.dist_config_.max_constraint_age);
+            read_positive_double("distance_sync_tolerance", posegraph.dist_config_.sync_tolerance);
+            read_positive_double("distance_sample_interval", posegraph.dist_config_.sample_interval);
+            read_positive_double("distance_recovery_rate_hz", posegraph.dist_config_.optimization_rate_hz);
+            read_positive_double("distance_wait_for_visual", posegraph.dist_config_.wait_for_visual);
+            read_positive_double("distance_min_temporal_span", posegraph.dist_config_.min_temporal_span);
+            read_positive_double("distance_min_self_motion", posegraph.dist_config_.min_self_motion);
+            read_positive_double("distance_max_condition_number", posegraph.dist_config_.max_condition_number);
+            read_positive_double("distance_max_normalized_rms", posegraph.dist_config_.max_normalized_rms);
+            read_positive_double("distance_max_position_jump", posegraph.dist_config_.max_position_jump);
+            read_positive_double("distance_max_restart_position_gap", posegraph.dist_config_.max_restart_position_gap);
+            read_positive_double("distance_max_yaw_deviation", posegraph.dist_config_.max_yaw_deviation);
+            read_positive_double("distance_range_only_position_prior_sigma", posegraph.dist_config_.range_only_position_prior_sigma);
+            read_positive_double("distance_range_only_yaw_prior_sigma", posegraph.dist_config_.range_only_yaw_prior_sigma);
+            read_positive_double("distance_max_value", posegraph.dist_config_.max_distance);
+            read_positive_double("visual_recovery_position_sigma", posegraph.dist_config_.visual_position_sigma);
+            read_positive_double("visual_recovery_yaw_sigma", posegraph.dist_config_.visual_yaw_sigma);
+            read_positive_double("visual_recovery_sync_tolerance", posegraph.dist_config_.visual_sync_tolerance);
+            read_positive_int("distance_min_neighbors", posegraph.dist_config_.min_neighbors);
+            read_positive_int("distance_min_factors", posegraph.dist_config_.min_factors);
+
+            cv::FileNode timestamp_node = fs["distance_use_header_timestamps"];
+            if (!timestamp_node.empty())
+                posegraph.dist_config_.use_header_timestamps = ((int)timestamp_node != 0);
+            cv::FileNode planar_node = fs["distance_planar_mode"];
+            if (!planar_node.empty())
+                posegraph.dist_config_.planar_mode = ((int)planar_node != 0);
+        }
+    }
+
+    // Allow an otherwise identical launch to be used for visual-only and
+    // visual+range A/B trials.  The YAML-derived value remains the default.
+    n.param("use_distance_recovery", posegraph.dist_config_.use_distance_recovery,
+            posegraph.dist_config_.use_distance_recovery);
+    n.param("distance_recovery_rate_hz", posegraph.dist_config_.optimization_rate_hz,
+            posegraph.dist_config_.optimization_rate_hz);
+    n.param("distance_planar_mode", posegraph.dist_config_.planar_mode,
+            posegraph.dist_config_.planar_mode);
+    if (posegraph.dist_config_.optimization_rate_hz <= 0.0)
+    {
+        ROS_WARN("[POSEGRAPH] Invalid distance_recovery_rate_hz; using 3.0 Hz.");
+        posegraph.dist_config_.optimization_rate_hz = 3.0;
+    }
+    ROS_INFO("[POSEGRAPH] Distance recovery: %s (%s)",
+             posegraph.dist_config_.use_distance_recovery ? "enabled" : "disabled",
+             posegraph.dist_config_.planar_mode ? "planar yaw/x/y solve" : "full yaw/x/y/z solve");
+
+    // One persistent CSV per robot and launch.  The timestamp prevents A/B
+    // experiments from overwriting each other.
+    std::string relative_log_dir;
+    n.param<std::string>("relative_recovery_log_dir", relative_log_dir, "");
+    if (relative_log_dir.empty())
+    {
+        const char *home = std::getenv("HOME");
+        relative_log_dir = std::string(home != nullptr ? home : "/tmp") +
+                           "/microswarm_ws/logs/relative_recovery";
+    }
+    if (!ensure_directory(relative_log_dir))
+        return 1;
+    const std::string audit_path = relative_log_dir + "/" +
+        (posegraph.dist_config_.robot_name.empty() ? "unknown_robot" : posegraph.dist_config_.robot_name) +
+        "_relative_recovery_" + std::to_string(ros::WallTime::now().toNSec()) + ".csv";
+    if (!posegraph.initializeDistanceAuditLog(audit_path))
+        return 1;
+
     fsSettings.release();
 
     if (LOAD_PREVIOUS_POSE_GRAPH)
@@ -626,6 +837,81 @@ int main(int argc, char **argv)
     ros::Subscriber sub_margin_point = n.subscribe("/vins_estimator/margin_cloud", 2000, margin_point_callback);
     ros::Subscriber sub_recovery = n.subscribe("/failure_recovery/recovered_pose", 2000, recovery_callback);
     ros::Subscriber sub_restart  = n.subscribe("/restart", 10, restart_callback);
+    ros::Subscriber sub_vio_reset = n.subscribe("/ov_msckf/vio_reset", 10, restart_callback);
+
+    // ── Distance recovery subscribers ──
+    std::vector<ros::Subscriber> neighbor_subs;
+    ros::Subscriber sub_distance;
+    if (posegraph.dist_config_.use_distance_recovery)
+    {
+        std::string dist_topic;
+        {
+            cv::FileStorage fs(config_file, cv::FileStorage::READ);
+            fs["distance_topic"] >> dist_topic;
+        }
+        if (dist_topic.empty()) dist_topic = "/group1/structure_distances";
+        sub_distance = n.subscribe(dist_topic, 200, distance_callback);
+        printf("[POSEGRAPH]: Subscribed to distance topic: %s\n", dist_topic.c_str());
+
+        // Subscribe to neighbor poses. Explicit topics/types are preferred; the
+        // suffix convention remains available for simple deployments.
+        std::string suffix;
+        std::vector<std::string> neighbor_names;
+        std::vector<std::string> neighbor_topics;
+        std::vector<std::string> neighbor_types;
+        {
+            cv::FileStorage fs(config_file, cv::FileStorage::READ);
+            fs["neighbor_pose_suffix"] >> suffix;
+            auto read_string_sequence = [&fs](const char *key, std::vector<std::string> &values) {
+                cv::FileNode node = fs[key];
+                if (node.type() != cv::FileNode::SEQ)
+                    return;
+                for (auto it = node.begin(); it != node.end(); ++it)
+                    values.push_back((std::string)*it);
+            };
+            read_string_sequence("neighbor_names", neighbor_names);
+            read_string_sequence("neighbor_pose_topics", neighbor_topics);
+            read_string_sequence("neighbor_pose_types", neighbor_types);
+        }
+        if (suffix.empty()) suffix = "/global_pose";
+
+        if (!neighbor_topics.empty() && neighbor_topics.size() != neighbor_names.size())
+        {
+            ROS_FATAL("[POSEGRAPH] neighbor_pose_topics (%zu) must match neighbor_names (%zu).",
+                      neighbor_topics.size(), neighbor_names.size());
+            return 1;
+        }
+        if (!neighbor_types.empty() && neighbor_types.size() != neighbor_names.size())
+        {
+            ROS_FATAL("[POSEGRAPH] neighbor_pose_types (%zu) must match neighbor_names (%zu).",
+                      neighbor_types.size(), neighbor_names.size());
+            return 1;
+        }
+
+        for (size_t index = 0; index < neighbor_names.size(); ++index)
+        {
+            const std::string &name = neighbor_names[index];
+            const std::string topic = neighbor_topics.empty() ? "/" + name + suffix : neighbor_topics[index];
+            const std::string type = neighbor_types.empty() ? "PoseStamped" : neighbor_types[index];
+            if (type == "PoseStamped" || type == "geometry_msgs/PoseStamped")
+                neighbor_subs.push_back(n.subscribe<geometry_msgs::PoseStamped>(
+                    topic, 200, boost::bind(neighbor_pose_callback, _1, name)));
+            else if (type == "PoseWithCovarianceStamped" || type == "geometry_msgs/PoseWithCovarianceStamped")
+                neighbor_subs.push_back(n.subscribe<geometry_msgs::PoseWithCovarianceStamped>(
+                    topic, 200, boost::bind(neighbor_pose_cov_callback, _1, name)));
+            else if (type == "Odometry" || type == "nav_msgs/Odometry")
+                neighbor_subs.push_back(n.subscribe<nav_msgs::Odometry>(
+                    topic, 200, boost::bind(neighbor_odom_callback, _1, name)));
+            else
+            {
+                ROS_FATAL("[POSEGRAPH] Unsupported neighbor pose type '%s' for %s.",
+                          type.c_str(), name.c_str());
+                return 1;
+            }
+            printf("[POSEGRAPH]: Subscribed to neighbor pose: %s (%s, robot=%s)\n",
+                   topic.c_str(), type.c_str(), name.c_str());
+        }
+    }
 
     pub_match_img = n.advertise<sensor_msgs::Image>("match_image", 1000);
     pub_camera_pose_visual = n.advertise<visualization_msgs::MarkerArray>("camera_pose_visual", 1000);
@@ -636,11 +922,28 @@ int main(int argc, char **argv)
 
     std::thread measurement_process;
     std::thread keyboard_command_process;
+    std::thread distance_recovery_process;
 
     measurement_process = std::thread(process);
     keyboard_command_process = std::thread(command);
+    if (posegraph.dist_config_.use_distance_recovery)
+    {
+        const double rate_hz = posegraph.dist_config_.optimization_rate_hz;
+        ROS_INFO("[POSEGRAPH] Range recovery worker running at %.2f Hz", rate_hz);
+        distance_recovery_process = std::thread([rate_hz]() {
+            ros::WallRate rate(rate_hz);
+            while (ros::ok())
+            {
+                posegraph.attemptDistanceRecovery();
+                rate.sleep();
+            }
+        });
+    }
     
     ros::spin();
+
+    if (distance_recovery_process.joinable())
+        distance_recovery_process.join();
 
     return 0;
 }

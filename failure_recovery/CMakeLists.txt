@@ -6,7 +6,7 @@ set(CMAKE_CXX_FLAGS "-std=c++14")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
 set(OpenCV_DIR "/usr/lib/x86_64-linux-gnu/cmake/opencv4")
-find_package(OpenCV 4 REQUIRED)
+find_package(OpenCV 4.2 REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(Eigen3 REQUIRED)
 

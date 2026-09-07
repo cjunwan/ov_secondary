@@ -1,0 +1,104 @@
+<launch>
+    <!-- Diagnostic run: three independent VIO instances using exactly the
+         shared micro_omo estimator/calibration, without loop closure, range
+         fusion, or failure-recovery nodes. -->
+    <arg name="rviz" default="true" />
+    <arg name="use_sim_time" default="true" />
+    <arg name="vio_config"
+         default="$(find ov_msckf)/../config/micro_omo/estimator_config.yaml" />
+    <arg name="rviz_config"
+         default="$(find loop_fusion)/../config/merged_omo2_recovery.rviz" />
+
+    <arg name="omo1_x" default="0.0" />
+    <arg name="omo1_y" default="0.0" />
+    <arg name="omo1_yaw_deg" default="0.0" />
+    <arg name="omo2_x" default="4.27" />
+    <arg name="omo2_y" default="0.0" />
+    <arg name="omo2_yaw_deg" default="90.0" />
+    <arg name="omo3_x" default="4.27" />
+    <arg name="omo3_y" default="5.5" />
+    <arg name="omo3_yaw_deg" default="180.0" />
+    <arg name="omo4_x" default="0.0" />
+    <arg name="omo4_y" default="5.5" />
+    <arg name="omo4_yaw_deg" default="-90.0" />
+    <!-- ROS1 poseimu uses the camera/IMU planar axes. In trial1, robot-forward
+         motion appears +90 deg (left) from the displayed body arrow, so rotate
+         only the world trajectory clockwise by 90 deg. -->
+    <arg name="trajectory_yaw_correction_deg" default="-90.0" />
+
+    <param name="/use_sim_time" value="$(arg use_sim_time)" />
+
+    <include file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo2" />
+        <arg name="node_name" value="ov_msckf_omo2" />
+        <arg name="config_path" value="$(arg vio_config)" />
+    </include>
+    <include file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo3" />
+        <arg name="node_name" value="ov_msckf_omo3" />
+        <arg name="config_path" value="$(arg vio_config)" />
+    </include>
+    <include file="$(find ov_msckf)/launch/merged_omo_vio.launch">
+        <arg name="robot" value="omo4" />
+        <arg name="node_name" value="ov_msckf_omo4" />
+        <arg name="config_path" value="$(arg vio_config)" />
+    </include>
+
+    <!-- Anchor each local VIO stream at the known trial1 world pose solely
+         for side-by-side visualization. This does not feed back into VIO. -->
+    <node name="omo2_micro_vio_to_world" pkg="loop_fusion"
+          type="initial_pose_to_world.py" output="screen">
+        <param name="input_topic" value="/ov_msckf_omo2/poseimu" />
+        <param name="output_topic" value="/micro_omo_world/omo2" />
+        <param name="input_type" value="PoseWithCovarianceStamped" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="initial_position">[$(arg omo2_x), $(arg omo2_y), 0.0]</rosparam>
+        <param name="initial_yaw_deg" value="$(arg omo2_yaw_deg)" />
+        <param name="trajectory_yaw_correction_deg"
+               value="$(arg trajectory_yaw_correction_deg)" />
+    </node>
+    <node name="omo3_micro_vio_to_world" pkg="loop_fusion"
+          type="initial_pose_to_world.py" output="screen">
+        <param name="input_topic" value="/ov_msckf_omo3/poseimu" />
+        <param name="output_topic" value="/micro_omo_world/omo3" />
+        <param name="input_type" value="PoseWithCovarianceStamped" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="initial_position">[$(arg omo3_x), $(arg omo3_y), 0.0]</rosparam>
+        <param name="initial_yaw_deg" value="$(arg omo3_yaw_deg)" />
+        <param name="trajectory_yaw_correction_deg"
+               value="$(arg trajectory_yaw_correction_deg)" />
+    </node>
+    <node name="omo4_micro_vio_to_world" pkg="loop_fusion"
+          type="initial_pose_to_world.py" output="screen">
+        <param name="input_topic" value="/ov_msckf_omo4/poseimu" />
+        <param name="output_topic" value="/micro_omo_world/omo4" />
+        <param name="input_type" value="PoseWithCovarianceStamped" />
+        <param name="world_frame" value="global" />
+        <rosparam subst_value="true" param="initial_position">[$(arg omo4_x), $(arg omo4_y), 0.0]</rosparam>
+        <param name="initial_yaw_deg" value="$(arg omo4_yaw_deg)" />
+        <param name="trajectory_yaw_correction_deg"
+               value="$(arg trajectory_yaw_correction_deg)" />
+    </node>
+
+    <node name="multi_robot_visualizer" pkg="loop_fusion"
+          type="multi_robot_visualizer.py" output="screen">
+        <param name="world_frame" value="global" />
+        <param name="omo2_topic" value="/micro_omo_world/omo2" />
+        <param name="omo3_topic" value="/micro_omo_world/omo3" />
+        <param name="omo4_topic" value="/micro_omo_world/omo4" />
+        <param name="omo2_pose_type" value="PoseStamped" />
+        <param name="omo3_pose_type" value="PoseStamped" />
+        <param name="omo4_pose_type" value="PoseStamped" />
+        <rosparam subst_value="true" param="omo1_initial_position">[$(arg omo1_x), $(arg omo1_y), 0.0]</rosparam>
+        <rosparam subst_value="true" param="omo2_initial_position">[$(arg omo2_x), $(arg omo2_y), 0.0]</rosparam>
+        <rosparam subst_value="true" param="omo3_initial_position">[$(arg omo3_x), $(arg omo3_y), 0.0]</rosparam>
+        <rosparam subst_value="true" param="omo4_initial_position">[$(arg omo4_x), $(arg omo4_y), 0.0]</rosparam>
+        <param name="omo1_initial_yaw_deg" value="$(arg omo1_yaw_deg)" />
+        <param name="omo2_initial_yaw_deg" value="$(arg omo2_yaw_deg)" />
+        <param name="omo3_initial_yaw_deg" value="$(arg omo3_yaw_deg)" />
+        <param name="omo4_initial_yaw_deg" value="$(arg omo4_yaw_deg)" />
+    </node>
+
+    <node if="$(arg rviz)" name="micro_omo_vio_rviz" pkg="rviz" type="rviz"
+          args="-d $(arg rviz_config)" output="screen" />
+</launch>

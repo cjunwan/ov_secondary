@@ -107,11 +107,12 @@ private:
 	void searchByBRIEFDes(std::vector<cv::Point2f> &matched_2d_old,
 						  std::vector<cv::Point2f> &matched_2d_old_norm,
                           std::vector<uchar> &status,
-                          KeyFrame* old_kf);
+						  KeyFrame* old_kf,
+						  size_t match_count);
 	void FundmantalMatrixRANSAC(const std::vector<cv::Point2f> &matched_2d_cur_norm,
                                 const std::vector<cv::Point2f> &matched_2d_old_norm,
                                 vector<uchar> &status);
-	void PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
+	bool PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
 	               const std::vector<cv::Point3f> &matched_3d,
 	               std::vector<uchar> &status,
 	               Eigen::Vector3d &PnP_T_old, Eigen::Matrix3d &PnP_R_old);

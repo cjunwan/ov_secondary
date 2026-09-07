@@ -14,8 +14,12 @@
 template <typename Derived>
 static void reduceVector(vector<Derived> &v, vector<uchar> status)
 {
+    // All feature arrays are expected to share the same correspondence mask.
+    // Never index past the mask if malformed or partially populated input gets
+    // through: the previous implementation invoked undefined behaviour here.
+    const size_t input_size = std::min(v.size(), status.size());
     int j = 0;
-    for (int i = 0; i < int(v.size()); i++)
+    for (size_t i = 0; i < input_size; i++)
         if (status[i])
             v[j++] = v[i];
     v.resize(j);
@@ -152,7 +156,9 @@ bool KeyFrame::searchInAera(const BRIEF::bitset window_descriptor,
     cv::Point2f best_pt;
     int bestDist = 128;
     int bestIndex = -1;
-    for(int i = 0; i < (int)descriptors_old.size(); i++)
+    const size_t candidate_count = std::min(descriptors_old.size(),
+                                            std::min(keypoints_old.size(), keypoints_old_norm.size()));
+    for(size_t i = 0; i < candidate_count; i++)
     {
 
         int dis = HammingDis(window_descriptor, descriptors_old[i]);
@@ -176,9 +182,11 @@ bool KeyFrame::searchInAera(const BRIEF::bitset window_descriptor,
 void KeyFrame::searchByBRIEFDes(std::vector<cv::Point2f> &matched_2d_old,
 								std::vector<cv::Point2f> &matched_2d_old_norm,
                                 std::vector<uchar> &status,
-                                KeyFrame* old_kf)
+								KeyFrame* old_kf,
+								size_t match_count)
 {
-    for(int i = 0; i < (int)window_brief_descriptors.size(); i++)
+    match_count = std::min(match_count, window_brief_descriptors.size());
+    for(size_t i = 0; i < match_count; i++)
     {
         cv::Point2f pt(0.f, 0.f);
         cv::Point2f pt_norm(0.f, 0.f);
@@ -220,11 +228,19 @@ void KeyFrame::FundmantalMatrixRANSAC(const std::vector<cv::Point2f> &matched_2d
     }
 }
 
-void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
+bool KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
                          const std::vector<cv::Point3f> &matched_3d,
                          std::vector<uchar> &status,
                          Eigen::Vector3d &PnP_T_old, Eigen::Matrix3d &PnP_R_old)
 {
+	if (matched_3d.size() != matched_2d_old_norm.size() || matched_3d.size() < 4 ||
+	    !std::isfinite(max_focallength) || max_focallength <= 0.0)
+	{
+	    ROS_WARN("[LOOP_FUSION] Rejecting invalid PnP input: 3d=%zu 2d=%zu focal=%.3f",
+	             matched_3d.size(), matched_2d_old_norm.size(), max_focallength);
+	    status.assign(matched_2d_old_norm.size(), 0);
+	    return false;
+	}
 	//for (int i = 0; i < matched_3d.size(); i++)
 	//	printf("[POSEGRAPH]: 3d x: %f, y: %f, z: %f\n",matched_3d[i].x, matched_3d[i].y, matched_3d[i].z );
 	//printf("[POSEGRAPH]: match size %d \n", matched_3d.size());
@@ -246,24 +262,28 @@ void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
     TicToc t_pnp_ransac;
 
     int flags = cv::SOLVEPNP_EPNP; // SOLVEPNP_EPNP, SOLVEPNP_ITERATIVE
+    bool solved = false;
     if (CV_MAJOR_VERSION < 3)
-        solvePnPRansac(matched_3d, matched_2d_old_norm, K, D, rvec, t, true, 200, PNP_INFLATION / max_focallength, 100, inliers, flags);
+        solved = solvePnPRansac(matched_3d, matched_2d_old_norm, K, D, rvec, t, true, 200, PNP_INFLATION / max_focallength, 100, inliers, flags);
     else
     {
         if (CV_MINOR_VERSION < 2)
-            solvePnPRansac(matched_3d, matched_2d_old_norm, K, D, rvec, t, true, 200, sqrt(PNP_INFLATION / max_focallength), 0.99, inliers, flags);
+            solved = solvePnPRansac(matched_3d, matched_2d_old_norm, K, D, rvec, t, true, 200, sqrt(PNP_INFLATION / max_focallength), 0.99, inliers, flags);
         else
-            solvePnPRansac(matched_3d, matched_2d_old_norm, K, D, rvec, t, true, 200, PNP_INFLATION / max_focallength, 0.99, inliers, flags);
+            solved = solvePnPRansac(matched_3d, matched_2d_old_norm, K, D, rvec, t, true, 200, PNP_INFLATION / max_focallength, 0.99, inliers, flags);
 
     }
 
-    for (int i = 0; i < (int)matched_2d_old_norm.size(); i++)
-        status.push_back(0);
+    status.assign(matched_2d_old_norm.size(), 0);
+
+    if (!solved || rvec.empty() || t.empty())
+        return false;
 
     for( int i = 0; i < inliers.rows; i++)
     {
         int n = inliers.at<int>(i);
-        status[n] = 1;
+        if (n >= 0 && static_cast<size_t>(n) < status.size())
+            status[n] = 1;
     }
     
     if (inliers.rows > 0) {
@@ -285,11 +305,18 @@ void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
     PnP_R_old = R_w_c_old * qic.transpose();
     PnP_T_old = T_w_c_old - PnP_R_old * tic;
 
+	return PnP_R_old.allFinite() && PnP_T_old.allFinite();
 }
 
 
 bool KeyFrame::findConnection(KeyFrame* old_kf)
 {
+	if (old_kf == nullptr || !m_camera)
+	{
+	    ROS_WARN_THROTTLE(1.0, "[LOOP_FUSION] Cannot match keyframes before camera calibration is available.");
+	    return false;
+	}
+
 	TicToc tmp_t;
 	//printf("[POSEGRAPH]: find Connection\n");
 	vector<cv::Point2f> matched_2d_cur, matched_2d_old;
@@ -298,25 +325,37 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	vector<double> matched_id;
 	vector<uchar> status;
 
-    // re-undistort with the latest intrinsic values
-    for (int i = 0; i < (int)point_2d_uv.size(); i++) {
+    // Keep all current-frame correspondence arrays exactly aligned.  In
+    // particular, do not append these values to point_2d_norm: that member is
+    // already populated by the constructor and appending doubled its length.
+    const size_t feature_count = std::min(
+        std::min(point_3d.size(), point_2d_uv.size()),
+        std::min(point_id.size(), window_brief_descriptors.size()));
+    if (feature_count <= static_cast<size_t>(MIN_LOOP_NUM))
+        return false;
+
+    matched_2d_cur_norm.reserve(feature_count);
+    for (size_t i = 0; i < feature_count; i++) {
         Eigen::Vector3d tmp_p;
         m_camera->liftProjective(Eigen::Vector2d(point_2d_uv[i].x, point_2d_uv[i].y), tmp_p);
-        point_2d_norm.push_back(cv::Point2f(tmp_p.x()/tmp_p.z(), tmp_p.y()/tmp_p.z()));
+        if (!tmp_p.allFinite() || std::abs(tmp_p.z()) < 1e-12)
+            return false;
+        matched_2d_cur_norm.push_back(cv::Point2f(tmp_p.x()/tmp_p.z(), tmp_p.y()/tmp_p.z()));
     }
     old_kf->keypoints_norm.clear();
     for (int i = 0; i < (int)old_kf->keypoints.size(); i++) {
         Eigen::Vector3d tmp_p;
         m_camera->liftProjective(Eigen::Vector2d(old_kf->keypoints[i].pt.x, old_kf->keypoints[i].pt.y), tmp_p);
         cv::KeyPoint tmp_norm;
+        if (!tmp_p.allFinite() || std::abs(tmp_p.z()) < 1e-12)
+            return false;
         tmp_norm.pt = cv::Point2f(tmp_p.x()/tmp_p.z(), tmp_p.y()/tmp_p.z());
         old_kf->keypoints_norm.push_back(tmp_norm);
     }
 
-    matched_3d = point_3d;
-    matched_2d_cur = point_2d_uv;
-    matched_id = point_id;
-    matched_2d_cur_norm = point_2d_norm;
+    matched_3d.assign(point_3d.begin(), point_3d.begin() + feature_count);
+    matched_2d_cur.assign(point_2d_uv.begin(), point_2d_uv.begin() + feature_count);
+    matched_id.assign(point_id.begin(), point_id.begin() + feature_count);
 
 	TicToc t_match;
 	#if 0
@@ -345,7 +384,7 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	    }
 	#endif
 	//printf("[POSEGRAPH]: search by des\n");
-	searchByBRIEFDes(matched_2d_old, matched_2d_old_norm, status, old_kf);
+	searchByBRIEFDes(matched_2d_old, matched_2d_old_norm, status, old_kf, feature_count);
 	reduceVector(matched_2d_cur, status);
 	reduceVector(matched_2d_old, status);
 	reduceVector(matched_2d_cur_norm, status);
@@ -458,7 +497,8 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	if ((int)matched_2d_cur.size() > MIN_LOOP_NUM)
 	{
 		status.clear();
-	    PnPRANSAC(matched_2d_old_norm, matched_3d, status, PnP_T_old, PnP_R_old);
+	    if (!PnPRANSAC(matched_2d_old_norm, matched_3d, status, PnP_T_old, PnP_R_old))
+	        return false;
 	    reduceVector(matched_2d_cur, status);
 	    reduceVector(matched_2d_old, status);
 	    reduceVector(matched_2d_cur_norm, status);
@@ -629,5 +669,4 @@ BriefExtractor::BriefExtractor(const std::string &pattern_file)
 
   m_brief.importPairs(x1, y1, x2, y2);
 }
-
 
